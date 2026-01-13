@@ -4,6 +4,7 @@ using System.Reflection;
 using SPT.Reflection.Patching;
 using JsonType;
 using UnityEngine;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Patches
 {
@@ -118,7 +119,7 @@ namespace QuickPrice.Patches
             // 如果是游戏预定义的 9 种颜色之一，则使用游戏原始逻辑
             if (Enum.IsDefined(typeof(JsonType.TaxonomyColor), taxonomyColor))
             {
-                Plugin.Log.LogDebug($"🎨 标准颜色: {taxonomyColor}");
+                ClientLog.Debug($"🎨 标准颜色: {taxonomyColor}");
                 return true; // 执行原始方法
             }
 
@@ -130,32 +131,32 @@ namespace QuickPrice.Patches
             // 偏移量 = TaxonomyColor 枚举的数量（9）
             colorCodeAsInt -= Enum.GetValues(typeof(TaxonomyColor)).Length;
 
-            Plugin.Log.LogDebug($"🎨 自定义颜色检测: 枚举值={(int)taxonomyColor}, RGB值={colorCodeAsInt}");
+            ClientLog.Debug($"🎨 自定义颜色检测: 枚举值={(int)taxonomyColor}, RGB值={colorCodeAsInt}");
 
             // ===== 步骤3：转换为十六进制字符串 =====
             // "X6" 格式：转换为 6 位十六进制（不足6位前面补0）
             // 例如：16711680 → "FF0000"
             var colorCode = colorCodeAsInt.ToString("X6");
 
-            Plugin.Log.LogDebug($"🎨 颜色代码: #{colorCode} (长度: {colorCode.Length})");
+            ClientLog.Debug($"🎨 颜色代码: #{colorCode} (长度: {colorCode.Length})");
 
             // ===== 步骤4：根据长度选择转换方法 =====
             if (colorCode.Length == 6)
             {
                 // 6 位：RGB 格式（#RRGGBB）
                 __result = HexToColor(colorCode);
-                Plugin.Log.LogDebug($"🎨 RGB颜色: #{colorCode} → R={__result.r}, G={__result.g}, B={__result.b}");
+                ClientLog.Debug($"🎨 RGB颜色: #{colorCode} → R={__result.r}, G={__result.g}, B={__result.b}");
             }
             else if (colorCode.Length == 8)
             {
                 // 8 位：RGBA 格式（#RRGGBBAA）
                 __result = HexToColorAlpha(colorCode);
-                Plugin.Log.LogDebug($"🎨 RGBA颜色: #{colorCode} → R={__result.r}, G={__result.g}, B={__result.b}, A={__result.a}");
+                ClientLog.Debug($"🎨 RGBA颜色: #{colorCode} → R={__result.r}, G={__result.g}, B={__result.b}, A={__result.a}");
             }
             else
             {
                 // 异常长度：输出警告并使用白色
-                Plugin.Log.LogWarning($"⚠️ 颜色代码长度异常: #{colorCode} (长度: {colorCode.Length})");
+                ClientLog.Warning($"⚠️ 颜色代码长度异常: #{colorCode} (长度: {colorCode.Length})");
                 __result = new Color32(255, 255, 255, 255); // 白色
             }
 

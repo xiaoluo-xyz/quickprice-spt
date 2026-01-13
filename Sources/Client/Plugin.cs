@@ -5,6 +5,7 @@ using BepInEx;
 using BepInEx.Logging;
 using UnityEngine;
 using QuickPrice.Config;
+using QuickPrice.Logging;
 using QuickPrice.Patches;
 using QuickPrice.Services;
 using QuickPrice.Extensions;
@@ -100,7 +101,7 @@ namespace QuickPrice
                 }
                 else
                 {
-                    Log.LogWarning("⚠️ 价格数据加载失败，将在下次使用时重试");
+                    ClientLog.Warning("⚠️ 价格数据加载失败，将在下次使用时重试");
                 }
             }
             catch (System.Exception ex)
@@ -229,13 +230,13 @@ namespace QuickPrice
                 }
                 else
                 {
-                    Log.LogWarning("⚠️ 跳蚤禁售列表加载失败或为空，默认所有物品可售");
+                    ClientLog.Warning("⚠️ 跳蚤禁售列表加载失败或为空，默认所有物品可售");
                 }
             }
             catch (System.Exception ex)
             {
                 Log.LogError($"❌ 加载跳蚤禁售列表失败: {ex.Message}");
-                Log.LogWarning("   所有物品将默认显示跳蚤价格");
+                ClientLog.Warning("   所有物品将默认显示跳蚤价格");
             }
         }
 
@@ -328,7 +329,7 @@ namespace QuickPrice
             // 防止重复刷新
             if (_isRefreshingPrices)
             {
-                Log.LogWarning("⚠️ 价格刷新已在进行中，请稍候...");
+                ClientLog.Warning("⚠️ 价格刷新已在进行中，请稍候...");
                 // 显示游戏内通知
                 NotificationManagerClass.DisplayMessageNotification("QuickPrice: 价格刷新已在进行中...", ENotificationDurationType.Default);
                 return;
@@ -338,7 +339,7 @@ namespace QuickPrice
             var timeSinceLastRefresh = (DateTime.Now - _lastManualRefresh).TotalSeconds;
             if (timeSinceLastRefresh < 5)
             {
-                Log.LogWarning($"⚠️ 刷新过于频繁，请等待 {5 - (int)timeSinceLastRefresh} 秒后再试");
+                ClientLog.Warning($"⚠️ 刷新过于频繁，请等待 {5 - (int)timeSinceLastRefresh} 秒后再试");
                 // 显示游戏内通知
                 NotificationManagerClass.DisplayMessageNotification(
                     $"QuickPrice: 请等待 {5 - (int)timeSinceLastRefresh} 秒后再试",
@@ -400,10 +401,10 @@ namespace QuickPrice
                 }
                 else
                 {
-                    Log.LogWarning("===========================================");
-                    Log.LogWarning("  ⚠️ 价格刷新失败");
-                    Log.LogWarning("  💡 请检查服务端是否正常运行");
-                    Log.LogWarning("===========================================");
+                    ClientLog.Warning("===========================================");
+                    ClientLog.Warning("  ⚠️ 价格刷新失败");
+                    ClientLog.Warning("  💡 请检查服务端是否正常运行");
+                    ClientLog.Warning("===========================================");
 
                     // 显示失败的游戏内通知
                     NotificationManagerClass.DisplayMessageNotification(

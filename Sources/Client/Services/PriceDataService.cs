@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using SPT.Common.Http;
 using QuickPrice.Config;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Services
 {
@@ -60,7 +61,7 @@ namespace QuickPrice.Services
                 }
                 else
                 {
-                    Plugin.Log.LogWarning("⚠️ 服务端返回空数据");
+                    ClientLog.Warning("⚠️ 服务端返回空数据");
                     return false;
                 }
             }
@@ -80,7 +81,7 @@ namespace QuickPrice.Services
             // 避免频繁HTTP请求导致游戏卡顿
             if (_priceCache == null)
             {
-                Plugin.Log.LogWarning("价格缓存未初始化，尝试加载...");
+                ClientLog.Warning("价格缓存未初始化，尝试加载...");
                 UpdatePrices();
             }
 
@@ -202,7 +203,7 @@ namespace QuickPrice.Services
                     }
                     else
                     {
-                        Plugin.Log.LogWarning("⚠️ 服务端返回空数据");
+                        ClientLog.Warning("⚠️ 服务端返回空数据");
                         return false;
                     }
                 }
@@ -295,7 +296,7 @@ namespace QuickPrice.Services
                     }
                     else
                     {
-                        Plugin.Log.LogWarning("[跳蚤禁售] 服务端返回空数据，默认所有物品可售");
+                        ClientLog.Warning("[跳蚤禁售] 服务端返回空数据，默认所有物品可售");
                         lock (_lockObject)
                         {
                             _ragfairBannedItems = new HashSet<string>();

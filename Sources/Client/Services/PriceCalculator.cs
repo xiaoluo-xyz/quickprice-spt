@@ -1,5 +1,6 @@
 using EFT.InventoryLogic;
 using QuickPrice.Config;
+using QuickPrice.Logging;
 using QuickPrice.Models;
 using System.Linq;
 
@@ -64,7 +65,7 @@ namespace QuickPrice.Services
                 // 递归计算所有配件价格（带保护）
                 totalModsPrice = CalculateModsPrice(weapon.Mods, visitedMods, 0);
 
-                Plugin.Log.LogDebug($"武器 {weapon.LocalizedName()} 配件总价: {totalModsPrice:N0}₽");
+                ClientLog.Debug($"武器 {weapon.LocalizedName()} 配件总价: {totalModsPrice:N0}₽");
             }
             catch (System.Exception ex)
             {
@@ -92,7 +93,7 @@ namespace QuickPrice.Services
                 // 递归收集所有配件信息（带保护）
                 CollectModsInfo(weapon.Mods, visitedMods, 0, modInfoList);
 
-                Plugin.Log.LogDebug($"武器 {weapon.LocalizedName()} 收集到 {modInfoList.Count} 个配件");
+                ClientLog.Debug($"武器 {weapon.LocalizedName()} 收集到 {modInfoList.Count} 个配件");
             }
             catch (System.Exception ex)
             {
@@ -120,7 +121,7 @@ namespace QuickPrice.Services
             // 防止栈溢出：最大递归深度 100 层
             if (depth >= 100)
             {
-                Plugin.Log.LogWarning($"⚠️ 配件递归深度达到限制 (100层)，停止计算以防止栈溢出");
+                ClientLog.Debug("⚠️ 配件递归深度达到限制 (100层)，停止计算以防止栈溢出");
                 return 0;
             }
 
@@ -134,7 +135,7 @@ namespace QuickPrice.Services
                 // 防止循环引用：检查是否已访问过此配件
                 if (visitedMods.Contains(mod.Id))
                 {
-                    Plugin.Log.LogWarning($"⚠️ 检测到循环引用: {mod.LocalizedName()} (ID: {mod.Id})");
+                    ClientLog.Debug($"⚠️ 检测到循环引用: {mod.LocalizedName()} (ID: {mod.Id})");
                     continue;
                 }
 
@@ -146,7 +147,7 @@ namespace QuickPrice.Services
                 if (modPrice.HasValue)
                 {
                     total += modPrice.Value;
-                    Plugin.Log.LogDebug($"  {new string(' ', depth * 2)}配件: {mod.LocalizedName()} = {modPrice.Value:N0}₽ (深度:{depth})");
+                    ClientLog.Debug($"  {new string(' ', depth * 2)}配件: {mod.LocalizedName()} = {modPrice.Value:N0}₽ (深度:{depth})");
                 }
 
                 // 递归计算配件上的配件
@@ -186,7 +187,7 @@ namespace QuickPrice.Services
             // 防止栈溢出：最大递归深度 100 层
             if (depth >= 100)
             {
-                Plugin.Log.LogWarning($"⚠️ 配件递归深度达到限制 (100层)，停止收集以防止栈溢出");
+                ClientLog.Debug("⚠️ 配件递归深度达到限制 (100层)，停止收集以防止栈溢出");
                 return;
             }
 
@@ -198,7 +199,7 @@ namespace QuickPrice.Services
                 // 防止循环引用：检查是否已访问过此配件
                 if (visitedMods.Contains(mod.Id))
                 {
-                    Plugin.Log.LogWarning($"⚠️ 检测到循环引用: {mod.LocalizedName()} (ID: {mod.Id})");
+                    ClientLog.Debug($"⚠️ 检测到循环引用: {mod.LocalizedName()} (ID: {mod.Id})");
                     continue;
                 }
 
@@ -217,7 +218,7 @@ namespace QuickPrice.Services
                         Depth = depth
                     });
 
-                    Plugin.Log.LogDebug($"  {new string(' ', depth * 2)}收集配件: {mod.LocalizedName()} = {modPrice.Value:N0}₽ (深度:{depth})");
+                    ClientLog.Debug($"  {new string(' ', depth * 2)}收集配件: {mod.LocalizedName()} = {modPrice.Value:N0}₽ (深度:{depth})");
                 }
 
                 // 递归收集配件上的配件

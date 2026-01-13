@@ -1,5 +1,6 @@
 using BepInEx.Configuration;
 using UnityEngine;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Config
 {
@@ -59,6 +60,15 @@ namespace QuickPrice.Config
         public static ConfigEntry<bool> ShowFleaTax;            // 显示跳蚤税费
         public static ConfigEntry<bool> AutoRefreshOnOpenInventory; // 打开物品栏自动刷新
         public static ConfigEntry<KeyCode> RefreshPricesKey;   // 刷新价格快捷键
+        public static ConfigEntry<bool> EnableDebugLogs;      // 调试日志开关
+        public static ConfigEntry<bool> EnableSearchSound;    // 搜索音效开关
+        public static ConfigEntry<bool> EnableSearchTimeAdjustment; // 搜索时间调整开关
+        public static ConfigEntry<float> SearchTimeLevel1;    // 搜索时间：品质等级1
+        public static ConfigEntry<float> SearchTimeLevel2;    // 搜索时间：品质等级2
+        public static ConfigEntry<float> SearchTimeLevel3;    // 搜索时间：品质等级3
+        public static ConfigEntry<float> SearchTimeLevel4;    // 搜索时间：品质等级4
+        public static ConfigEntry<float> SearchTimeLevel5;    // 搜索时间：品质等级5
+        public static ConfigEntry<float> SearchTimeLevel6;    // 搜索时间：品质等级6
 
         // 默认阈值常量
         private const int DEFAULT_PRICE_THRESHOLD_1 = 5000;
@@ -464,6 +474,104 @@ namespace QuickPrice.Config
                 "适用于动态价格模式，可随时获取最新跳蚤市场价格\n" +
                 "💡 配合永久缓存模式使用，需要更新价格时手动刷新"
             );
+
+            // ===== 4.1 搜索设置 =====
+            EnableSearchSound = config.Bind(
+                "4.1 搜索设置",
+                "启用搜索音效",
+                false,
+                "根据物品价值等级播放不同的搜索音效\n" +
+                "关闭后使用游戏原始搜索音效"
+            );
+
+            EnableSearchTimeAdjustment = config.Bind(
+                "4.1 搜索设置",
+                "启用搜索时间调整",
+                false,
+                "根据物品价值等级调整搜索时间（高价值耗时更长）\n" +
+                "关闭后使用游戏原始搜索时间"
+            );
+
+            SearchTimeLevel1 = config.Bind(
+                "4.1 搜索设置",
+                "品质等级1搜索时间（秒）",
+                1f,
+                new ConfigDescription(
+                    "最低价值等级的搜索时间\n" +
+                    "仅在启用搜索时间调整时生效",
+                    new AcceptableValueRange<float>(0.1f, 30f)
+                )
+            );
+
+            SearchTimeLevel2 = config.Bind(
+                "4.1 搜索设置",
+                "品质等级2搜索时间（秒）",
+                2f,
+                new ConfigDescription(
+                    "较低价值等级的搜索时间\n" +
+                    "仅在启用搜索时间调整时生效",
+                    new AcceptableValueRange<float>(0.1f, 30f)
+                )
+            );
+
+            SearchTimeLevel3 = config.Bind(
+                "4.1 搜索设置",
+                "品质等级3搜索时间（秒）",
+                3f,
+                new ConfigDescription(
+                    "中等价值等级的搜索时间\n" +
+                    "仅在启用搜索时间调整时生效",
+                    new AcceptableValueRange<float>(0.1f, 30f)
+                )
+            );
+
+            SearchTimeLevel4 = config.Bind(
+                "4.1 搜索设置",
+                "品质等级4搜索时间（秒）",
+                4f,
+                new ConfigDescription(
+                    "较高价值等级的搜索时间\n" +
+                    "仅在启用搜索时间调整时生效",
+                    new AcceptableValueRange<float>(0.1f, 30f)
+                )
+            );
+
+            SearchTimeLevel5 = config.Bind(
+                "4.1 搜索设置",
+                "品质等级5搜索时间（秒）",
+                5f,
+                new ConfigDescription(
+                    "高价值等级的搜索时间\n" +
+                    "仅在启用搜索时间调整时生效",
+                    new AcceptableValueRange<float>(0.1f, 30f)
+                )
+            );
+
+            SearchTimeLevel6 = config.Bind(
+                "4.1 搜索设置",
+                "品质等级6搜索时间（秒）",
+                6f,
+                new ConfigDescription(
+                    "最高价值等级的搜索时间\n" +
+                    "仅在启用搜索时间调整时生效",
+                    new AcceptableValueRange<float>(0.1f, 30f)
+                )
+            );
+
+            // ===== 5. 调试设置 =====
+            EnableDebugLogs = config.Bind(
+                "5. 调试设置",
+                "启用Debug日志",
+                false,
+                "开启后输出Debug/Warning级别日志（用于排查问题）\n" +
+                "默认关闭以减少客户端日志量"
+            );
+
+            ClientLog.SetDebugEnabled(EnableDebugLogs.Value);
+            EnableDebugLogs.SettingChanged += (sender, args) =>
+            {
+                ClientLog.SetDebugEnabled(EnableDebugLogs.Value);
+            };
         }
 
         /// <summary>

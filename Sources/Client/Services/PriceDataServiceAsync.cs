@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using SPT.Common.Http;
 using QuickPrice.Config;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Services
 {
@@ -37,7 +38,7 @@ namespace QuickPrice.Services
             // 检查是否需要更新
             if (!force && !ShouldRefresh())
             {
-                Plugin.Log.LogDebug("价格缓存仍然有效，跳过更新");
+                ClientLog.Debug("价格缓存仍然有效，跳过更新");
                 return true;
             }
 
@@ -45,14 +46,14 @@ namespace QuickPrice.Services
             var timeSinceLastUpdate = (DateTime.Now - _lastUpdate).TotalSeconds;
             if (!force && timeSinceLastUpdate < MIN_UPDATE_INTERVAL)
             {
-                Plugin.Log.LogDebug($"距离上次更新仅 {timeSinceLastUpdate:F1}秒，跳过更新");
+                ClientLog.Debug($"距离上次更新仅 {timeSinceLastUpdate:F1}秒，跳过更新");
                 return true;
             }
 
             // 如果已有更新任务在运行，等待其完成
             if (_updateTask != null && !_updateTask.IsCompleted)
             {
-                Plugin.Log.LogDebug("价格更新任务已在运行，等待完成...");
+                ClientLog.Debug("价格更新任务已在运行，等待完成...");
                 await _updateTask;
                 return true;
             }
@@ -67,7 +68,7 @@ namespace QuickPrice.Services
                         ? "/showMeTheMoney/getDynamicPriceTable"
                         : "/showMeTheMoney/getStaticPriceTable";
 
-                    Plugin.Log.LogDebug($"正在异步获取价格数据: {endpoint}");
+                    ClientLog.Debug($"正在异步获取价格数据: {endpoint}");
 
                     // 使用 Task.Run 包装同步的 RequestHandler
                     // 注意：SPT 的 RequestHandler.GetJson 是同步的，我们用 Task.Run 将其移到后台线程
@@ -100,14 +101,14 @@ namespace QuickPrice.Services
                     }
                     else
                     {
-                        Plugin.Log.LogWarning("⚠️ 服务端返回空数据");
+                        ClientLog.Warning("⚠️ 服务端返回空数据");
                         return false;
                     }
                 }
                 catch (Exception ex)
                 {
                     Plugin.Log.LogError($"❌ 异步获取价格数据失败: {ex.Message}");
-                    Plugin.Log.LogDebug($"堆栈跟踪: {ex.StackTrace}");
+                    ClientLog.Debug($"堆栈跟踪: {ex.StackTrace}");
                     return false;
                 }
             });
@@ -141,7 +142,7 @@ namespace QuickPrice.Services
             {
                 if ((DateTime.Now - startTime).TotalSeconds > timeoutSeconds)
                 {
-                    Plugin.Log.LogWarning($"⚠️ 等待价格数据超时 ({timeoutSeconds}秒)");
+                    ClientLog.Warning($"⚠️ 等待价格数据超时 ({timeoutSeconds}秒)");
                     return false;
                 }
 
@@ -159,7 +160,7 @@ namespace QuickPrice.Services
             // 首次调用时异步加载
             if (_priceCache == null)
             {
-                Plugin.Log.LogWarning("价格缓存未初始化，启动异步加载...");
+                ClientLog.Warning("价格缓存未初始化，启动异步加载...");
                 _ = UpdatePricesAsync(); // Fire and Forget
                 return null;
             }

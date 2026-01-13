@@ -14,26 +14,29 @@
         <OutputPath>bin\$(Configuration)\</OutputPath>
         <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     </PropertyGroup>
+    <PropertyGroup>
+        <SptDir Condition=" '$(SptDir)' == '' ">..\..\..\SPT\</SptDir>
+    </PropertyGroup>
 
     <ItemGroup>
         <!-- 引用本地SPT DLL文件 -->
         <Reference Include="SPT.Server">
-            <HintPath>..\..\..\..\Apps\TKFBao\TKFClient.0.16.9.0.40087\SPT\SPT.Server.dll</HintPath>
+            <HintPath>$(SptDir)SPT.Server.dll</HintPath>
         </Reference>
         <Reference Include="SPTarkov.Server.Core">
-            <HintPath>..\..\..\..\Apps\TKFBao\TKFClient.0.16.9.0.40087\SPT\SPTarkov.Server.Core.dll</HintPath>
+            <HintPath>$(SptDir)SPTarkov.Server.Core.dll</HintPath>
         </Reference>
         <Reference Include="SPTarkov.DI">
-            <HintPath>..\..\..\..\Apps\TKFBao\TKFClient.0.16.9.0.40087\SPT\SPTarkov.DI.dll</HintPath>
+            <HintPath>$(SptDir)SPTarkov.DI.dll</HintPath>
         </Reference>
         <Reference Include="SPTarkov.Common">
-            <HintPath>..\..\..\..\Apps\TKFBao\TKFClient.0.16.9.0.40087\SPT\SPTarkov.Common.dll</HintPath>
+            <HintPath>$(SptDir)SPTarkov.Common.dll</HintPath>
         </Reference>
         <Reference Include="SPTarkov.Reflection">
-            <HintPath>..\..\..\..\Apps\TKFBao\TKFClient.0.16.9.0.40087\SPT\SPTarkov.Reflection.dll</HintPath>
+            <HintPath>$(SptDir)SPTarkov.Reflection.dll</HintPath>
         </Reference>
         <Reference Include="SemanticVersioning">
-            <HintPath>..\..\..\..\Apps\TKFBao\TKFClient.0.16.9.0.40087\SPT\SemanticVersioning.dll</HintPath>
+            <HintPath>$(SptDir)SemanticVersioning.dll</HintPath>
         </Reference>
     </ItemGroup>
 

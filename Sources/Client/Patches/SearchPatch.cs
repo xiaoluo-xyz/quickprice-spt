@@ -22,6 +22,9 @@ namespace QuickPrice.Patches
             [HarmonyPrefix]
             public static bool Prefix(GClass3517 __instance, Item item)
             {
+                if (!Settings.EnableSearchSound.Value)
+                    return true;
+
                 try
                 {
                     PlaySound(item);
@@ -43,6 +46,9 @@ namespace QuickPrice.Patches
                 [HarmonyPrefix]
                 public static bool Prefix(SearchContentOperationResultClass __instance, Item item)
                 {
+                    if (!Settings.EnableSearchSound.Value)
+                        return true;
+
                     try
                     {
                         SearchSoundPatch.PlaySound(item);
@@ -120,6 +126,9 @@ namespace QuickPrice.Patches
             [HarmonyPrefix]
             public static bool Prefix(ref Task __result, GClass3515 __instance)
             {
+                if (!Settings.EnableSearchTimeAdjustment.Value)
+                    return true;
+
                 if (IsProcessing)
                     return true;
 
@@ -214,13 +223,13 @@ namespace QuickPrice.Patches
             {
                 return priceLevel switch
                 {
-                    1 => 1f,
-                    2 => 2f,
-                    3 => 3f,
-                    4 => 4f,
-                    5 => 5f,
-                    6 => 6f,
-                    _ => 1f
+                    1 => Settings.SearchTimeLevel1.Value,
+                    2 => Settings.SearchTimeLevel2.Value,
+                    3 => Settings.SearchTimeLevel3.Value,
+                    4 => Settings.SearchTimeLevel4.Value,
+                    5 => Settings.SearchTimeLevel5.Value,
+                    6 => Settings.SearchTimeLevel6.Value,
+                    _ => Settings.SearchTimeLevel1.Value
                 };
             }
             /// <summary>

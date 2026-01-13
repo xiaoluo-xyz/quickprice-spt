@@ -3,6 +3,7 @@ using EFT.UI.DragAndDrop;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using UnityEngine.EventSystems;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Patches
 {
@@ -25,7 +26,7 @@ namespace QuickPrice.Patches
             Plugin.HoveredItem = __instance?.Item;
             if (Plugin.HoveredItem != null)
             {
-                Plugin.Log.LogDebug($"鼠标进入物品: {Plugin.HoveredItem.LocalizedName()}");
+                ClientLog.Debug($"鼠标进入物品: {Plugin.HoveredItem.LocalizedName()}");
             }
         }
     }
@@ -47,7 +48,7 @@ namespace QuickPrice.Patches
         public static void Prefix(GridItemView __instance, PointerEventData eventData)
         {
             Plugin.HoveredItem = null;
-            Plugin.Log.LogDebug("鼠标离开物品");
+            ClientLog.Debug("鼠标离开物品");
         }
     }
 }

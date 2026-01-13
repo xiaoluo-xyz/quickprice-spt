@@ -1,0 +1,7 @@
+{
+    "Enabled": true,
+    "LogLevel": "Info",
+    "CacheTimeoutSeconds": 300,
+    "AutoRefreshIntervalMinutes": 5,
+    "Notes": "QuickPrice server configuration"
+}

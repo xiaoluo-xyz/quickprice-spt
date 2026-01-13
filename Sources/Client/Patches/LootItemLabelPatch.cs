@@ -9,6 +9,7 @@ using EFT.UI;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using QuickPrice.Config;
+using QuickPrice.Logging;
 using QuickPrice.Services;
 using QuickPrice.Utils;
 using TMPro;
@@ -153,7 +154,7 @@ namespace QuickPrice.Patches
             {
                 if (field.FieldType == fieldType)
                 {
-                    Plugin.Log.LogDebug($"  🔍 找到字段: {field.Name} ({fieldType.Name})");
+                    ClientLog.Debug($"  🔍 找到字段: {field.Name} ({fieldType.Name})");
                     return field;
                 }
             }
@@ -171,7 +172,7 @@ namespace QuickPrice.Patches
                 var gamePlayerOwner = _gamePlayerOwnerField.GetValue(actionPanel) as GamePlayerOwner;
                 if (gamePlayerOwner == null)
                 {
-                    Plugin.Log.LogDebug("🔍 GamePlayerOwner 为 null");
+                    ClientLog.Debug("🔍 GamePlayerOwner 为 null");
                     return null;
                 }
 
@@ -179,7 +180,7 @@ namespace QuickPrice.Patches
                 var interactableObject = gamePlayerOwner.Player.InteractableObject;
                 if (interactableObject == null)
                 {
-                    Plugin.Log.LogDebug("🔍 InteractableObject 为 null");
+                    ClientLog.Debug("🔍 InteractableObject 为 null");
                     return null;
                 }
 
@@ -190,13 +191,13 @@ namespace QuickPrice.Patches
                 }
                 else
                 {
-                    Plugin.Log.LogDebug($"🔍 InteractableObject 不是 LootItem，类型: {interactableObject.GetType().Name}");
+                    ClientLog.Debug($"🔍 InteractableObject 不是 LootItem，类型: {interactableObject.GetType().Name}");
                     return null;
                 }
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning($"⚠️ 获取地面物品失败: {ex.Message}");
+                ClientLog.Warning($"⚠️ 获取地面物品失败: {ex.Message}");
                 return null;
             }
         }
@@ -211,28 +212,28 @@ namespace QuickPrice.Patches
                 var item = lootItem.Item;
                 if (item == null)
                 {
-                    Plugin.Log.LogWarning("⚠️ LootItem.Item 为 null");
+                    ClientLog.Warning("⚠️ LootItem.Item 为 null");
                     return;
                 }
 
-                Plugin.Log.LogWarning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                Plugin.Log.LogWarning($"🔍 [物品详细信息]");
-                Plugin.Log.LogWarning($"   名称: {lootItem.Name}");
-                Plugin.Log.LogWarning($"   TemplateId: {lootItem.TemplateId}");
-                Plugin.Log.LogWarning($"   Item.TemplateId: {item.TemplateId}");
+                ClientLog.Warning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                ClientLog.Warning($"🔍 [物品详细信息]");
+                ClientLog.Warning($"   名称: {lootItem.Name}");
+                ClientLog.Warning($"   TemplateId: {lootItem.TemplateId}");
+                ClientLog.Warning($"   Item.TemplateId: {item.TemplateId}");
 
                 // 打印类型信息
                 var itemType = item.GetType();
-                Plugin.Log.LogWarning($"   Item 类型: {itemType.FullName}");
-                Plugin.Log.LogWarning($"   Item 简单类型名: {itemType.Name}");
+                ClientLog.Warning($"   Item 类型: {itemType.FullName}");
+                ClientLog.Warning($"   Item 简单类型名: {itemType.Name}");
 
                 // 打印继承链
-                Plugin.Log.LogWarning($"   继承链:");
+                ClientLog.Warning($"   继承链:");
                 var baseType = itemType.BaseType;
                 int depth = 1;
                 while (baseType != null && depth < 5)
                 {
-                    Plugin.Log.LogWarning($"     {new string(' ', depth * 2)}↑ {baseType.Name}");
+                    ClientLog.Warning($"     {new string(' ', depth * 2)}↑ {baseType.Name}");
                     baseType = baseType.BaseType;
                     depth++;
                 }
@@ -241,43 +242,43 @@ namespace QuickPrice.Patches
                 var interfaces = itemType.GetInterfaces();
                 if (interfaces.Length > 0)
                 {
-                    Plugin.Log.LogWarning($"   实现的接口: {string.Join(", ", interfaces.Select(i => i.Name).Take(5))}");
+                    ClientLog.Warning($"   实现的接口: {string.Join(", ", interfaces.Select(i => i.Name).Take(5))}");
                 }
 
                 // 检查是否是 AmmoItemClass
                 if (item is AmmoItemClass ammo)
                 {
-                    Plugin.Log.LogWarning($"   ✅ 这是一个 AmmoItemClass (子弹)");
-                    Plugin.Log.LogWarning($"      穿甲值: {ammo.PenetrationPower}");
-                    Plugin.Log.LogWarning($"      口径: {ammo.Caliber}");
-                    Plugin.Log.LogWarning($"      伤害: {ammo.Damage}");
+                    ClientLog.Warning($"   ✅ 这是一个 AmmoItemClass (子弹)");
+                    ClientLog.Warning($"      穿甲值: {ammo.PenetrationPower}");
+                    ClientLog.Warning($"      口径: {ammo.Caliber}");
+                    ClientLog.Warning($"      伤害: {ammo.Damage}");
                 }
 
                 // 检查是否是 AmmoBox
                 if (item is AmmoBox ammoBox)
                 {
-                    Plugin.Log.LogWarning($"   ✅ 这是一个 AmmoBox (子弹盒/弹匣)");
-                    Plugin.Log.LogWarning($"      Cartridges 是否为 null: {ammoBox.Cartridges == null}");
+                    ClientLog.Warning($"   ✅ 这是一个 AmmoBox (子弹盒/弹匣)");
+                    ClientLog.Warning($"      Cartridges 是否为 null: {ammoBox.Cartridges == null}");
 
                     if (ammoBox.Cartridges != null)
                     {
-                        Plugin.Log.LogWarning($"      Cartridges.Items 是否为 null: {ammoBox.Cartridges.Items == null}");
+                        ClientLog.Warning($"      Cartridges.Items 是否为 null: {ammoBox.Cartridges.Items == null}");
 
                         if (ammoBox.Cartridges.Items != null)
                         {
                             var cartridges = ammoBox.Cartridges.Items.ToList();
-                            Plugin.Log.LogWarning($"      子弹数量: {cartridges.Count}");
+                            ClientLog.Warning($"      子弹数量: {cartridges.Count}");
 
                             if (cartridges.Count > 0)
                             {
                                 var firstCartridge = cartridges[0];
-                                Plugin.Log.LogWarning($"      第一颗子弹类型: {firstCartridge?.GetType().Name}");
+                                ClientLog.Warning($"      第一颗子弹类型: {firstCartridge?.GetType().Name}");
 
                                 if (firstCartridge is AmmoItemClass firstAmmo)
                                 {
-                                    Plugin.Log.LogWarning($"      第一颗子弹穿甲: {firstAmmo.PenetrationPower}");
-                                    Plugin.Log.LogWarning($"      第一颗子弹口径: {firstAmmo.Caliber}");
-                                    Plugin.Log.LogWarning($"      第一颗子弹伤害: {firstAmmo.Damage}");
+                                    ClientLog.Warning($"      第一颗子弹穿甲: {firstAmmo.PenetrationPower}");
+                                    ClientLog.Warning($"      第一颗子弹口径: {firstAmmo.Caliber}");
+                                    ClientLog.Warning($"      第一颗子弹伤害: {firstAmmo.Damage}");
                                 }
                             }
                         }
@@ -285,7 +286,7 @@ namespace QuickPrice.Patches
                 }
 
                 // 打印所有公共属性（前20个）
-                Plugin.Log.LogWarning($"   公共属性 (前20个):");
+                ClientLog.Warning($"   公共属性 (前20个):");
                 var properties = itemType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
                 foreach (var prop in properties.Take(20))
                 {
@@ -294,16 +295,16 @@ namespace QuickPrice.Patches
                         var value = prop.GetValue(item);
                         string valueStr = value?.ToString() ?? "null";
                         if (valueStr.Length > 50) valueStr = valueStr.Substring(0, 50) + "...";
-                        Plugin.Log.LogWarning($"      {prop.Name} ({prop.PropertyType.Name}): {valueStr}");
+                        ClientLog.Warning($"      {prop.Name} ({prop.PropertyType.Name}): {valueStr}");
                     }
                     catch
                     {
-                        Plugin.Log.LogWarning($"      {prop.Name} ({prop.PropertyType.Name}): [无法获取]");
+                        ClientLog.Warning($"      {prop.Name} ({prop.PropertyType.Name}): [无法获取]");
                     }
                 }
 
                 // 打印所有公共字段（前20个）
-                Plugin.Log.LogWarning($"   公共字段 (前20个):");
+                ClientLog.Warning($"   公共字段 (前20个):");
                 var fields = itemType.GetFields(BindingFlags.Public | BindingFlags.Instance);
                 foreach (var field in fields.Take(20))
                 {
@@ -312,15 +313,15 @@ namespace QuickPrice.Patches
                         var value = field.GetValue(item);
                         string valueStr = value?.ToString() ?? "null";
                         if (valueStr.Length > 50) valueStr = valueStr.Substring(0, 50) + "...";
-                        Plugin.Log.LogWarning($"      {field.Name} ({field.FieldType.Name}): {valueStr}");
+                        ClientLog.Warning($"      {field.Name} ({field.FieldType.Name}): {valueStr}");
                     }
                     catch
                     {
-                        Plugin.Log.LogWarning($"      {field.Name} ({field.FieldType.Name}): [无法获取]");
+                        ClientLog.Warning($"      {field.Name} ({field.FieldType.Name}): [无法获取]");
                     }
                 }
 
-                Plugin.Log.LogWarning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                ClientLog.Warning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             }
             catch (Exception ex)
             {
@@ -339,7 +340,7 @@ namespace QuickPrice.Patches
                 var item = lootItem.Item;
                 if (item == null)
                 {
-                    Plugin.Log.LogDebug("🔍 LootItem.Item 为 null");
+                    ClientLog.Debug("🔍 LootItem.Item 为 null");
                     return originalText;
                 }
 
@@ -430,7 +431,7 @@ namespace QuickPrice.Patches
                 // ===== 定期清理缓存（避免内存泄漏）=====
                 if (_colorCache.Count > 500)
                 {
-                    Plugin.Log.LogDebug($"⚠️ 颜色缓存过大 ({_colorCache.Count} 项)，清理一半");
+                    ClientLog.Debug($"⚠️ 颜色缓存过大 ({_colorCache.Count} 项)，清理一半");
                     ClearOldestCacheEntries(250);
                 }
 
@@ -438,7 +439,7 @@ namespace QuickPrice.Patches
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning($"⚠️ 物品名称着色失败: {ex.Message}");
+                ClientLog.Warning($"⚠️ 物品名称着色失败: {ex.Message}");
                 return originalText;
             }
         }
@@ -488,7 +489,7 @@ namespace QuickPrice.Patches
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning($"⚠️ 子弹盒信息获取失败: {ex.Message}");
+                ClientLog.Warning($"⚠️ 子弹盒信息获取失败: {ex.Message}");
 
                 // 降级处理：按价格着色
                 var boxItem = ammoBox as Item;
@@ -516,11 +517,11 @@ namespace QuickPrice.Patches
                 {
                     _colorCache.Remove(keys[i]);
                 }
-                Plugin.Log.LogDebug($"✅ 已清理 {countToRemove} 个颜色缓存条目");
+                ClientLog.Debug($"✅ 已清理 {countToRemove} 个颜色缓存条目");
             }
             catch (Exception ex)
             {
-                Plugin.Log.LogWarning($"⚠️ 清理缓存失败: {ex.Message}");
+                ClientLog.Warning($"⚠️ 清理缓存失败: {ex.Message}");
             }
         }
 

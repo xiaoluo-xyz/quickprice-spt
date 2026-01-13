@@ -7,6 +7,7 @@ using EFT.InventoryLogic;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using QuickPrice.Config;
+using QuickPrice.Logging;
 using QuickPrice.Services;
 using QuickPrice.Utils;
 
@@ -371,7 +372,7 @@ namespace QuickPrice.Patches
             }
             catch (System.Exception ex)
             {
-                Plugin.Log.LogWarning($"⚠️ 物品名称着色失败: {ex.Message}");
+                ClientLog.Warning($"⚠️ 物品名称着色失败: {ex.Message}");
                 return text; // 出错时返回原始文本
             }
         }
@@ -530,60 +531,60 @@ namespace QuickPrice.Patches
         {
             try
             {
-                Plugin.Log.LogWarning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
-                Plugin.Log.LogWarning($"🔍 [弹药包详细信息]");
-                Plugin.Log.LogWarning($"   名称: {ammoBox.LocalizedName()}");
-                Plugin.Log.LogWarning($"   TemplateId: {ammoBox.TemplateId}");
+                ClientLog.Warning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                ClientLog.Warning($"🔍 [弹药包详细信息]");
+                ClientLog.Warning($"   名称: {ammoBox.LocalizedName()}");
+                ClientLog.Warning($"   TemplateId: {ammoBox.TemplateId}");
 
                 // 打印类型信息
                 var itemType = ammoBox.GetType();
-                Plugin.Log.LogWarning($"   类型: {itemType.FullName}");
-                Plugin.Log.LogWarning($"   简单类型名: {itemType.Name}");
+                ClientLog.Warning($"   类型: {itemType.FullName}");
+                ClientLog.Warning($"   简单类型名: {itemType.Name}");
 
                 // 打印继承链
-                Plugin.Log.LogWarning($"   继承链:");
+                ClientLog.Warning($"   继承链:");
                 var baseType = itemType.BaseType;
                 int depth = 1;
                 while (baseType != null && depth < 5)
                 {
-                    Plugin.Log.LogWarning($"     {new string(' ', depth * 2)}↑ {baseType.Name}");
+                    ClientLog.Warning($"     {new string(' ', depth * 2)}↑ {baseType.Name}");
                     baseType = baseType.BaseType;
                     depth++;
                 }
 
                 // 检查 Cartridges
-                Plugin.Log.LogWarning($"   Cartridges 是否为 null: {ammoBox.Cartridges == null}");
+                ClientLog.Warning($"   Cartridges 是否为 null: {ammoBox.Cartridges == null}");
 
                 if (ammoBox.Cartridges != null)
                 {
-                    Plugin.Log.LogWarning($"   Cartridges.Items 是否为 null: {ammoBox.Cartridges.Items == null}");
+                    ClientLog.Warning($"   Cartridges.Items 是否为 null: {ammoBox.Cartridges.Items == null}");
 
                     if (ammoBox.Cartridges.Items != null)
                     {
                         var cartridges = ammoBox.Cartridges.Items.ToList();
-                        Plugin.Log.LogWarning($"   子弹数量: {cartridges.Count}");
+                        ClientLog.Warning($"   子弹数量: {cartridges.Count}");
 
                         if (cartridges.Count > 0)
                         {
                             var firstCartridge = cartridges[0];
-                            Plugin.Log.LogWarning($"   第一颗子弹类型: {firstCartridge?.GetType().Name}");
+                            ClientLog.Warning($"   第一颗子弹类型: {firstCartridge?.GetType().Name}");
 
                             if (firstCartridge is AmmoItemClass firstAmmo)
                             {
-                                Plugin.Log.LogWarning($"   第一颗子弹信息:");
-                                Plugin.Log.LogWarning($"      名称: {firstAmmo.LocalizedName()}");
-                                Plugin.Log.LogWarning($"      TemplateId: {firstAmmo.TemplateId}");
-                                Plugin.Log.LogWarning($"      穿甲值: {firstAmmo.PenetrationPower}");
-                                Plugin.Log.LogWarning($"      口径: {firstAmmo.Caliber}");
-                                Plugin.Log.LogWarning($"      伤害: {firstAmmo.Damage}");
-                                Plugin.Log.LogWarning($"      速度: {firstAmmo.InitialSpeed}");
+                                ClientLog.Warning($"   第一颗子弹信息:");
+                                ClientLog.Warning($"      名称: {firstAmmo.LocalizedName()}");
+                                ClientLog.Warning($"      TemplateId: {firstAmmo.TemplateId}");
+                                ClientLog.Warning($"      穿甲值: {firstAmmo.PenetrationPower}");
+                                ClientLog.Warning($"      口径: {firstAmmo.Caliber}");
+                                ClientLog.Warning($"      伤害: {firstAmmo.Damage}");
+                                ClientLog.Warning($"      速度: {firstAmmo.InitialSpeed}");
                             }
                         }
                     }
                 }
 
                 // 打印所有公共属性
-                Plugin.Log.LogWarning($"   公共属性 (前30个):");
+                ClientLog.Warning($"   公共属性 (前30个):");
                 var properties = itemType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
                 foreach (var prop in properties.Take(30))
                 {
@@ -592,16 +593,16 @@ namespace QuickPrice.Patches
                         var value = prop.GetValue(ammoBox);
                         string valueStr = value?.ToString() ?? "null";
                         if (valueStr.Length > 60) valueStr = valueStr.Substring(0, 60) + "...";
-                        Plugin.Log.LogWarning($"      {prop.Name} ({prop.PropertyType.Name}): {valueStr}");
+                        ClientLog.Warning($"      {prop.Name} ({prop.PropertyType.Name}): {valueStr}");
                     }
                     catch
                     {
-                        Plugin.Log.LogWarning($"      {prop.Name} ({prop.PropertyType.Name}): [无法获取]");
+                        ClientLog.Warning($"      {prop.Name} ({prop.PropertyType.Name}): [无法获取]");
                     }
                 }
 
                 // 打印所有公共字段
-                Plugin.Log.LogWarning($"   公共字段 (前30个):");
+                ClientLog.Warning($"   公共字段 (前30个):");
                 var fields = itemType.GetFields(BindingFlags.Public | BindingFlags.Instance);
                 foreach (var field in fields.Take(30))
                 {
@@ -610,15 +611,15 @@ namespace QuickPrice.Patches
                         var value = field.GetValue(ammoBox);
                         string valueStr = value?.ToString() ?? "null";
                         if (valueStr.Length > 60) valueStr = valueStr.Substring(0, 60) + "...";
-                        Plugin.Log.LogWarning($"      {field.Name} ({field.FieldType.Name}): {valueStr}");
+                        ClientLog.Warning($"      {field.Name} ({field.FieldType.Name}): {valueStr}");
                     }
                     catch
                     {
-                        Plugin.Log.LogWarning($"      {field.Name} ({field.FieldType.Name}): [无法获取]");
+                        ClientLog.Warning($"      {field.Name} ({field.FieldType.Name}): [无法获取]");
                     }
                 }
 
-                Plugin.Log.LogWarning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                ClientLog.Warning("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             }
             catch (Exception ex)
             {
@@ -750,7 +751,7 @@ namespace QuickPrice.Patches
             var boxPrice = PriceDataService.Instance.GetPrice(ammoBox.TemplateId);
             if (!boxPrice.HasValue)
             {
-                Plugin.Log.LogWarning($"⚠️ 弹匣 {ammoBox.LocalizedName()} 没有价格数据");
+                ClientLog.Warning($"⚠️ 弹匣 {ammoBox.LocalizedName()} 没有价格数据");
                 return "";
             }
 
@@ -789,7 +790,7 @@ namespace QuickPrice.Patches
                         }
                         else
                         {
-                            Plugin.Log.LogWarning($"      ⚠️ 子弹 {ammoItem.LocalizedName()} 没有价格数据");
+                            ClientLog.Warning($"      ⚠️ 子弹 {ammoItem.LocalizedName()} 没有价格数据");
                         }
 
                         // 计算加权平均穿甲值
@@ -811,7 +812,7 @@ namespace QuickPrice.Patches
             }
             else
             {
-                Plugin.Log.LogWarning($"⚠️ 弹药包 {ammoBox.LocalizedName()} 的 Cartridges.Items 为 null 或空");
+                ClientLog.Warning($"⚠️ 弹药包 {ammoBox.LocalizedName()} 的 Cartridges.Items 为 null 或空");
             }
 
             // 总价 = 弹匣 + 子弹
@@ -940,7 +941,7 @@ namespace QuickPrice.Patches
             var magPrice = PriceDataService.Instance.GetPrice(magazine.TemplateId);
             if (!magPrice.HasValue)
             {
-                Plugin.Log.LogWarning($"⚠️ 弹匣 {magazine.LocalizedName()} 没有价格数据");
+                ClientLog.Warning($"⚠️ 弹匣 {magazine.LocalizedName()} 没有价格数据");
                 return "";
             }
 
@@ -989,7 +990,7 @@ namespace QuickPrice.Patches
                         }
                         else
                         {
-                            // Plugin.Log.LogWarning($"      ⚠️ 子弹 {ammoItem.LocalizedName()} 没有价格数据");
+                            // ClientLog.Warning($"      ⚠️ 子弹 {ammoItem.LocalizedName()} 没有价格数据");
                         }
 
                         // 计算加权平均穿甲值
@@ -1008,7 +1009,7 @@ namespace QuickPrice.Patches
             }
             else
             {
-                // Plugin.Log.LogWarning($"⚠️ 弹匣 {magazine.LocalizedName()} 的 Cartridges.Items 为空");
+                // ClientLog.Warning($"⚠️ 弹匣 {magazine.LocalizedName()} 的 Cartridges.Items 为空");
             }
 
             // 计算加权平均穿甲值
@@ -1706,7 +1707,7 @@ namespace QuickPrice.Patches
             // 防止栈溢出：使用配置的最大递归深度（默认10层）
             if (depth >= Settings.MaxContainerDepth.Value)
             {
-                Plugin.Log.LogWarning($"⚠️ 容器递归深度达到限制 ({Settings.MaxContainerDepth.Value}层)");
+                ClientLog.Warning($"⚠️ 容器递归深度达到限制 ({Settings.MaxContainerDepth.Value}层)");
                 return 0;
             }
 
@@ -1714,7 +1715,7 @@ namespace QuickPrice.Patches
             int maxItems = Settings.MaxContainerItems.Value;
             if (maxItems > 0 && itemCounter.Count >= maxItems)
             {
-                Plugin.Log.LogWarning($"⚠️ 容器物品数量达到限制 ({maxItems}个)，停止计算");
+                ClientLog.Warning($"⚠️ 容器物品数量达到限制 ({maxItems}个)，停止计算");
                 itemCounter.WasLimited = true;
                 return 0;
             }
@@ -1809,7 +1810,7 @@ namespace QuickPrice.Patches
                         itemCounter.Count++;
                         if (maxItems > 0 && itemCounter.Count > maxItems)
                         {
-                            Plugin.Log.LogWarning($"⚠️ 容器物品数量超过限制 ({maxItems}个)，停止计算");
+                            ClientLog.Warning($"⚠️ 容器物品数量超过限制 ({maxItems}个)，停止计算");
                             itemCounter.WasLimited = true;
                             return total;
                         }

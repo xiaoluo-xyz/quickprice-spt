@@ -4,6 +4,8 @@
 // ----------------------------------------------------------------------------
 
 using System.Text.Json;
+using System.Diagnostics;
+using System.Reflection;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Helpers;
@@ -13,6 +15,7 @@ using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Utils;
 using SPTarkov.Server.Core.Services;
 using System.Collections.Generic;
+using System.Collections;
 using System.Linq;
 
 namespace QuickPrice.Server
@@ -39,6 +42,11 @@ namespace QuickPrice.Server
         // 配置
         private static QuickPriceConfig? _config;
         private static bool _isInitialized = false; // 防止重复初始化
+        private static readonly object _configLock = new object();
+        private static string? _configPath;
+        private static DateTime? _configLastWriteUtc;
+        private static readonly object _ragfairBlacklistLogLock = new object();
+        private static bool _ragfairBlacklistLogged = false;
 
         public QuickPriceStaticRouter(
             JsonUtil jsonUtil,
@@ -72,35 +80,56 @@ namespace QuickPrice.Server
                 logger.Info("[QuickPrice] 自定义路由已初始化", null);
 
                 // 加载配置文件
-                LoadConfig();
+                LoadConfig(force: true);
+                TryLogRagfairDynamicBlacklistAfterInit();
 
-                // 启动时预加载动态价格缓存（异步，不阻塞启动）
-                _isPreloadStarted = true;
-                _ = PreloadDynamicPriceCacheAsync();
+                if (IsEnabled())
+                {
+                    // 启动时预加载动态价格缓存（异步，不阻塞启动）
+                    _isPreloadStarted = true;
+                    _ = PreloadDynamicPriceCacheAsync();
+                }
+                else
+                {
+                    logger.Info("[QuickPrice] 模组已禁用，跳过预加载和自动刷新", null);
+                }
             }
         }
 
         /// <summary>
         /// 加载配置文件
         /// </summary>
-        private static void LoadConfig()
+        private static void LoadConfig(bool force = false)
         {
             try
             {
-                // 获取模组目录路径
-                var modPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "user", "mods", "QuickPrice");
-                var configPath = Path.Combine(modPath, "config.json");
+                lock (_configLock)
+                {
+                    _configPath ??= ResolveConfigPath();
 
-                if (File.Exists(configPath))
-                {
-                    var jsonContent = File.ReadAllText(configPath);
-                    _config = JsonSerializer.Deserialize<QuickPriceConfig>(jsonContent);
-                    _loggerStatic?.Info($"[QuickPrice] 配置文件已加载 (自动刷新间隔: {_config?.AutoRefreshIntervalMinutes ?? 5} 分钟)", null);
-                }
-                else
-                {
-                    _loggerStatic?.Warning($"[QuickPrice] 配置文件不存在: {configPath}, 将使用默认配置", null);
-                    _config = new QuickPriceConfig();
+                    if (string.IsNullOrWhiteSpace(_configPath))
+                    {
+                        _config = new QuickPriceConfig();
+                        return;
+                    }
+
+                    if (!File.Exists(_configPath))
+                    {
+                        _loggerStatic?.Warning($"[QuickPrice] 配置文件不存在: {_configPath}, 将使用默认配置", null);
+                        _config = new QuickPriceConfig();
+                        _configLastWriteUtc = null;
+                        return;
+                    }
+
+                    var lastWriteUtc = File.GetLastWriteTimeUtc(_configPath);
+                    if (!force && _config != null && _configLastWriteUtc.HasValue && lastWriteUtc == _configLastWriteUtc.Value)
+                        return;
+
+                    var jsonContent = File.ReadAllText(_configPath);
+                    _config = JsonSerializer.Deserialize<QuickPriceConfig>(jsonContent) ?? new QuickPriceConfig();
+                    _configLastWriteUtc = lastWriteUtc;
+
+                    _loggerStatic?.Info($"[QuickPrice] 配置文件已加载 (路径: {_configPath}, 自动刷新间隔: {_config.AutoRefreshIntervalMinutes} 分钟)", null);
                 }
             }
             catch (Exception ex)
@@ -108,6 +137,146 @@ namespace QuickPrice.Server
                 _loggerStatic?.Error($"[QuickPrice] 加载配置文件失败: {ex.Message}, 将使用默认配置", ex);
                 _config = new QuickPriceConfig();
             }
+        }
+
+        private static void EnsureConfigLoaded()
+        {
+            var previousInterval = _config?.AutoRefreshIntervalMinutes;
+            var previousEnabled = _config?.Enabled;
+
+            LoadConfig();
+
+            if (_autoRefreshTimer != null)
+            {
+                if (_config?.Enabled == false)
+                {
+                    _autoRefreshTimer.Dispose();
+                    _autoRefreshTimer = null;
+                    _loggerStatic?.Info("[QuickPrice] 模组已禁用，已停止自动刷新定时器", null);
+                    return;
+                }
+
+                if (_config?.AutoRefreshIntervalMinutes != previousInterval || _config?.Enabled != previousEnabled)
+                    StartAutoRefreshTimer();
+            }
+        }
+
+        /// <summary>
+        /// 在初始化完成后尝试读取 ragfair.json 的 dynamic.blacklist 并打印
+        /// </summary>
+        private static void TryLogRagfairDynamicBlacklistAfterInit()
+        {
+            lock (_ragfairBlacklistLogLock)
+            {
+                if (_ragfairBlacklistLogged)
+                    return;
+                _ragfairBlacklistLogged = true;
+            }
+
+            try
+            {
+                var ragfairConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "ragfair.json");
+                if (!File.Exists(ragfairConfigPath))
+                {
+                    _loggerStatic?.Warning($"[QuickPrice-RagfairBlacklist] 找不到 ragfair.json: {ragfairConfigPath}", null);
+                    return;
+                }
+
+                var json = File.ReadAllText(ragfairConfigPath);
+                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+                var configType = Type.GetType("SPTarkov.Server.Core.Models.Spt.Config.RagfairConfig, SPTarkov.Server.Core");
+                if (configType == null)
+                {
+                    _loggerStatic?.Warning("[QuickPrice-RagfairBlacklist] 未找到 RagfairConfig 类型，无法解析配置", null);
+                    return;
+                }
+
+                var ragfairConfig = JsonSerializer.Deserialize(json, configType, options);
+                var dynamicValue = configType.GetProperty("Dynamic", BindingFlags.Public | BindingFlags.Instance)?.GetValue(ragfairConfig);
+                var blacklistValue = dynamicValue?.GetType().GetProperty("Blacklist", BindingFlags.Public | BindingFlags.Instance)?.GetValue(dynamicValue);
+
+                if (blacklistValue == null)
+                {
+                    _loggerStatic?.Warning("[QuickPrice-RagfairBlacklist] ragfairConfig.Dynamic.Blacklist 为空", null);
+                    return;
+                }
+
+                var blacklistType = blacklistValue.GetType();
+                var customItems = ExtractStringList(blacklistType.GetProperty("Custom")?.GetValue(blacklistValue));
+                var customCategories = ExtractStringList(blacklistType.GetProperty("CustomItemCategoryList")?.GetValue(blacklistValue));
+
+                var enableBsgList = ExtractBool(blacklistType.GetProperty("EnableBsgList")?.GetValue(blacklistValue));
+                var enableQuestList = ExtractBool(blacklistType.GetProperty("EnableQuestList")?.GetValue(blacklistValue));
+                var enableCustomItemCategoryList = ExtractBool(blacklistType.GetProperty("EnableCustomItemCategoryList")?.GetValue(blacklistValue));
+                var traderItems = ExtractBool(blacklistType.GetProperty("TraderItems")?.GetValue(blacklistValue));
+                var damagedAmmoPacks = ExtractBool(blacklistType.GetProperty("DamagedAmmoPacks")?.GetValue(blacklistValue));
+
+                _loggerStatic?.Info(
+                    $"[QuickPrice-RagfairBlacklist] 动态黑名单加载完成: Custom={customItems.Count}, CustomCategory={customCategories.Count}, " +
+                    $"EnableBsgList={enableBsgList}, EnableQuestList={enableQuestList}, EnableCustomItemCategoryList={enableCustomItemCategoryList}, " +
+                    $"TraderItems={traderItems}, DamagedAmmoPacks={damagedAmmoPacks}",
+                    null);
+
+                if (customItems.Count > 0)
+                    _loggerStatic?.Info($"[QuickPrice-RagfairBlacklist] Custom Items: {string.Join(", ", customItems)}", null);
+
+                if (customCategories.Count > 0)
+                    _loggerStatic?.Info($"[QuickPrice-RagfairBlacklist] Custom Categories: {string.Join(", ", customCategories)}", null);
+            }
+            catch (Exception ex)
+            {
+                _loggerStatic?.Error($"[QuickPrice-RagfairBlacklist] 读取动态黑名单失败: {ex.Message}", ex);
+            }
+        }
+
+        private static List<string> ExtractStringList(object? value)
+        {
+            if (value is IEnumerable enumerable)
+            {
+                var result = new List<string>();
+                foreach (var item in enumerable)
+                {
+                    if (item is string s)
+                        result.Add(s);
+                }
+                return result;
+            }
+
+            return new List<string>();
+        }
+
+        private static bool ExtractBool(object? value)
+        {
+            return value is bool b && b;
+        }
+
+        private static bool IsEnabled()
+        {
+            return _config?.Enabled ?? true;
+        }
+
+        private static string ResolveConfigPath()
+        {
+            try
+            {
+                var assemblyLocation = Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrWhiteSpace(assemblyLocation))
+                {
+                    var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+                    if (!string.IsNullOrWhiteSpace(assemblyDir))
+                    {
+                        var candidate = Path.Combine(assemblyDir, "config.json");
+                        if (File.Exists(candidate))
+                            return candidate;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            var fallbackModPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "user", "mods", "QuickPrice");
+            return Path.Combine(fallbackModPath, "config.json");
         }
 
         /// <summary>
@@ -159,6 +328,10 @@ namespace QuickPrice.Server
         {
             try
             {
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                    return new ValueTask<string>(JsonSerializer.Serialize(new CurrencyPurchasePrices { Eur = 153, Usd = 139 }));
+
                 double eurPrice = 153;  // 默认值
                 double usdPrice = 139;  // 默认值
 
@@ -216,6 +389,10 @@ namespace QuickPrice.Server
         {
             try
             {
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                    return new ValueTask<string>(JsonSerializer.Serialize(new Dictionary<string, double>()));
+
                 var priceTable = new Dictionary<string, double>();
 
                 if (_databaseServiceStatic != null)
@@ -278,13 +455,19 @@ namespace QuickPrice.Server
         {
             try
             {
-                // 检查缓存是否有效（5分钟内）
-                var cacheAge = (DateTime.Now - _lastCacheUpdate).TotalMinutes;
-                bool isCacheValid = _cachedDynamicPrices != null && cacheAge < 5;
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                    return new ValueTask<string>(JsonSerializer.Serialize(new Dictionary<string, double>()));
+
+                // 检查缓存是否有效（根据配置的过期时间）
+                var cacheAgeSeconds = (DateTime.Now - _lastCacheUpdate).TotalSeconds;
+                int cacheTimeoutSeconds = _config?.CacheTimeoutSeconds ?? 300;
+                bool isCacheValid = _cachedDynamicPrices != null && cacheTimeoutSeconds > 0 && cacheAgeSeconds < cacheTimeoutSeconds;
 
                 if (isCacheValid)
                 {
-                    _loggerStatic?.Info($"[QuickPrice] 返回缓存的动态价格（{_cachedDynamicPrices!.Count} 个物品，缓存年龄: {cacheAge:F1} 分钟）", null);
+                    var cacheAgeMinutes = cacheAgeSeconds / 60d;
+                    _loggerStatic?.Info($"[QuickPrice] 返回缓存的动态价格（{_cachedDynamicPrices!.Count} 个物品，缓存年龄: {cacheAgeMinutes:F1} 分钟）", null);
                     var json = JsonSerializer.Serialize(_cachedDynamicPrices);
                     return new ValueTask<string>(json);
                 }
@@ -298,7 +481,8 @@ namespace QuickPrice.Server
                 // 如果有旧缓存，先返回旧数据（不让客户端等待）
                 if (_cachedDynamicPrices != null)
                 {
-                    _loggerStatic?.Info($"[QuickPrice] 返回旧缓存数据，同时后台更新（{_cachedDynamicPrices.Count} 个物品，缓存年龄: {cacheAge:F1} 分钟）", null);
+                    var cacheAgeMinutes = cacheAgeSeconds / 60d;
+                    _loggerStatic?.Info($"[QuickPrice] 返回旧缓存数据，同时后台更新（{_cachedDynamicPrices.Count} 个物品，缓存年龄: {cacheAgeMinutes:F1} 分钟）", null);
                     var json = JsonSerializer.Serialize(_cachedDynamicPrices);
                     return new ValueTask<string>(json);
                 }
@@ -333,8 +517,15 @@ namespace QuickPrice.Server
 
             try
             {
-                _loggerStatic?.Info("[QuickPrice] 开始动态价格缓存更新（并行模式）...", null);
-                var startTime = DateTime.Now;
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                {
+                    _loggerStatic?.Info("[QuickPrice] 模组已禁用，跳过缓存更新", null);
+                    return;
+                }
+
+                _loggerStatic?.Info("[QuickPrice] 开始动态价格缓存更新（聚合模式）...", null);
+                var stopwatch = Stopwatch.StartNew();
 
                 // 获取静态价格作为基础
                 var priceTable = new Dictionary<string, double>();
@@ -355,60 +546,75 @@ namespace QuickPrice.Server
                         }
                     }
 
-                    // 并行查询跳蚤市场价格
+                    // 聚合跳蚤市场报价（一次性遍历全部报价）
                     if (_ragfairOfferServiceStatic != null && priceTable.Count > 0)
                     {
                         int updatedCount = 0;
-                        var updateLock = new object();
+                        var validTemplates = new HashSet<string>(priceTable.Keys);
+                        var aggregated = new Dictionary<string, (double Sum, int Count)>(priceTable.Count);
 
-                        // 使用 Parallel.ForEach 并行处理
                         await Task.Run(() =>
                         {
-                            Parallel.ForEach(
-                                priceTable.Keys.ToList(),
-                                new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount },
-                                itemId =>
+                            var offers = _ragfairOfferServiceStatic.GetOffers();
+                            if (offers == null)
+                            {
+                                return;
+                            }
+
+                            foreach (var offer in offers)
+                            {
+                                try
                                 {
-                                    try
+                                    if (offer?.User?.Id == null)
                                     {
-                                        var offers = _ragfairOfferServiceStatic.GetOffersOfType(itemId);
-
-                                        if (offers != null && offers.Any())
-                                        {
-                                            // 计算所有非交易商报价的平均价格
-                                            var playerOffers = offers?.Where(o => o.User?.Id != null).ToList();
-
-                                            if (playerOffers != null && playerOffers.Count > 0)
-                                            {
-                                                // 使用中位数或平均值
-                                                var prices = playerOffers
-                                                    .Where(o => o.RequirementsCost.HasValue && o.RequirementsCost.Value > 0)
-                                                    .Select(o => (double)o.RequirementsCost!.Value)
-                                                    .ToList();
-
-                                                if (prices.Count > 0)
-                                                {
-                                                    double avgPrice = prices.Average();
-
-                                                    lock (updateLock)
-                                                    {
-                                                        priceTable[itemId] = avgPrice;
-                                                        updatedCount++;
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        continue;
                                     }
-                                    catch
+
+                                    if (!offer.RequirementsCost.HasValue || offer.RequirementsCost.Value <= 0)
                                     {
-                                        // 某个物品查询失败，继续处理其他物品
+                                        continue;
+                                    }
+
+                                    var rootItem = offer.Items?.FirstOrDefault(i => i.Id == offer.Root);
+                                    if (rootItem == null)
+                                    {
+                                        continue;
+                                    }
+
+                                    var templateId = rootItem.Template.ToString();
+                                    if (string.IsNullOrEmpty(templateId) || !validTemplates.Contains(templateId))
+                                    {
+                                        continue;
+                                    }
+
+                                    var cost = (double)offer.RequirementsCost.Value;
+                                    if (aggregated.TryGetValue(templateId, out var acc))
+                                    {
+                                        aggregated[templateId] = (acc.Sum + cost, acc.Count + 1);
+                                    }
+                                    else
+                                    {
+                                        aggregated[templateId] = (cost, 1);
                                     }
                                 }
-                            );
+                                catch
+                                {
+                                    // 某个报价解析失败，继续处理其他报价
+                                }
+                            }
                         });
 
-                        var duration = (DateTime.Now - startTime).TotalSeconds;
-                        _loggerStatic?.Info($"[QuickPrice] 动态价格缓存已更新: {priceTable.Count} 个物品（{updatedCount} 个来自跳蚤市场），耗时 {duration:F1} 秒", null);
+                        foreach (var kvp in aggregated)
+                        {
+                            if (kvp.Value.Count > 0)
+                            {
+                                priceTable[kvp.Key] = kvp.Value.Sum / kvp.Value.Count;
+                                updatedCount++;
+                            }
+                        }
+
+                        stopwatch.Stop();
+                        _loggerStatic?.Info($"[QuickPrice] 动态价格缓存已更新: {priceTable.Count} 个物品（{updatedCount} 个来自跳蚤市场），耗时 {stopwatch.ElapsedMilliseconds} ms", null);
                     }
                 }
 
@@ -439,17 +645,24 @@ namespace QuickPrice.Server
         {
             try
             {
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                {
+                    _loggerStatic?.Info("[QuickPrice] 模组已禁用，跳过预加载", null);
+                    return;
+                }
+
                 // 等待更长时间，确保数据库和跳蚤市场已完全初始化
                 _loggerStatic?.Info("[QuickPrice] 正在等待数据库初始化...", null);
 
-                // 第一阶段：等待数据库就绪
-                int maxRetries = 30;
-                int retryDelayMs = 2000;
-                bool databaseReady = false;
+                // 第一阶段：等待数据库就绪（每1秒轮询一次，直到成功）
+                int retryDelayMs = 1000;
+                int attempts = 0;
 
-                for (int i = 0; i < maxRetries; i++)
+                while (true)
                 {
                     await Task.Delay(retryDelayMs);
+                    attempts++;
 
                     try
                     {
@@ -459,8 +672,8 @@ namespace QuickPrice.Server
                             var tables = _databaseServiceStatic.GetTables();
                             if (tables?.Templates?.Prices != null && tables.Templates.Prices.Count > 0)
                             {
-                                databaseReady = true;
-                                _loggerStatic?.Info($"[QuickPrice] 数据库已就绪（耗时 {(i + 1) * retryDelayMs / 1000} 秒）", null);
+                                var elapsedSeconds = attempts * retryDelayMs / 1000;
+                                _loggerStatic?.Info($"[QuickPrice] 数据库已就绪（耗时 {elapsedSeconds} 秒）", null);
                                 break;
                             }
                         }
@@ -468,20 +681,12 @@ namespace QuickPrice.Server
                     catch
                     {
                         // 数据库还未就绪，继续等待
-                        if (i % 5 == 0)  // 每10秒输出一次日志
-                        {
-                            _loggerStatic?.Info($"[QuickPrice] 仍在等待数据库... ({i + 1}/{maxRetries})", null);
-                        }
                     }
-                }
 
-                if (!databaseReady)
-                {
-                    _loggerStatic?.Warning("========================================", null);
-                    _loggerStatic?.Warning("[QuickPrice] 数据库初始化超时（60秒）", null);
-                    _loggerStatic?.Warning("[QuickPrice] 将在客户端首次请求时重试", null);
-                    _loggerStatic?.Warning("========================================", null);
-                    return;
+                    if (attempts % 10 == 0)
+                    {
+                        _loggerStatic?.Info($"[QuickPrice] 仍在等待数据库...（已等待 {attempts * retryDelayMs / 1000} 秒）", null);
+                    }
                 }
 
                 // 第二阶段：额外等待10秒，确保跳蚤市场报价已生成
@@ -525,6 +730,14 @@ namespace QuickPrice.Server
         {
             try
             {
+                if (!IsEnabled())
+                {
+                    _autoRefreshTimer?.Dispose();
+                    _autoRefreshTimer = null;
+                    _loggerStatic?.Info("[QuickPrice] 模组已禁用，自动刷新未启动", null);
+                    return;
+                }
+
                 // 获取配置的刷新间隔（默认5分钟）
                 int intervalMinutes = _config?.AutoRefreshIntervalMinutes ?? 5;
 
@@ -573,6 +786,10 @@ namespace QuickPrice.Server
         {
             try
             {
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                    return new ValueTask<string>(JsonSerializer.Serialize(new List<string>()));
+
                 var bannedItems = new HashSet<string>();
                 int totalItems = 0;
                 int checkedItems = 0;

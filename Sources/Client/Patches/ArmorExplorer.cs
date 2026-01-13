@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using System.Linq;
 using EFT.InventoryLogic;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Patches
 {
@@ -280,7 +281,7 @@ namespace QuickPrice.Patches
                 }
                 catch (Exception ex)
                 {
-                    Plugin.Log.LogWarning($"   ⚠️ 获取防弹等级时出错: {ex.Message}");
+                    ClientLog.Warning($"   ⚠️ 获取防弹等级时出错: {ex.Message}");
                 }
 
                 Plugin.Log.LogInfo($"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");

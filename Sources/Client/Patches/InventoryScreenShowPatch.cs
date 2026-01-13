@@ -4,6 +4,7 @@ using EFT.UI;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using QuickPrice.Config;
+using QuickPrice.Logging;
 using QuickPrice.Services;
 
 namespace QuickPrice.Patches
@@ -39,7 +40,7 @@ namespace QuickPrice.Patches
                 // 防止重复更新
                 if (_isUpdating)
                 {
-                    Plugin.Log.LogDebug("价格更新已在进行中，跳过");
+                    ClientLog.Debug("价格更新已在进行中，跳过");
                     return;
                 }
 
@@ -47,7 +48,7 @@ namespace QuickPrice.Patches
                 if (!PriceDataService.Instance.IsCacheExpired())
                 {
                     var cacheAge = PriceDataService.Instance.GetCacheAge();
-                    Plugin.Log.LogDebug($"价格缓存仍然新鲜 ({cacheAge:F0}秒)，跳过刷新");
+                    ClientLog.Debug($"价格缓存仍然新鲜 ({cacheAge:F0}秒)，跳过刷新");
                     return;
                 }
 
@@ -81,7 +82,7 @@ namespace QuickPrice.Patches
                 }
                 else
                 {
-                    Plugin.Log.LogWarning("⚠️ 价格数据刷新失败");
+                    ClientLog.Warning("⚠️ 价格数据刷新失败");
                 }
             }
             catch (System.Exception ex)
