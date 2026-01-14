@@ -137,9 +137,6 @@ namespace QuickPrice.Patches
                     text += FormatNormalItemPriceText(item, slots);
                 }
 
-                // 添加跳蚤市场禁售标签（统一处理所有类型）
-                text += RagfairHelper.GetRagfairBanLabel(item);
-
                 // 设置延迟
                 delay = Settings.TooltipDelay.Value;
             }
@@ -410,6 +407,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                totalPriceText = AppendRagfairBanLabel(totalPriceText, weapon);
                 if (Settings.EnableColorCoding.Value)
                 {
                     totalPriceText = PriceColorCoding.ApplyColor(totalPriceText, pricePerSlotForColor);
@@ -522,6 +520,15 @@ namespace QuickPrice.Patches
                 Plugin.Log.LogError($"❌ 获取商人价格失败: {ex.Message}");
                 Plugin.Log.LogError(ex.StackTrace);
             }
+        }
+
+        private static string AppendRagfairBanLabel(string priceText, Item item)
+        {
+            var label = RagfairHelper.GetRagfairBanInlineLabel(item);
+            if (string.IsNullOrEmpty(label))
+                return priceText;
+
+            return $"{priceText}{label}";
         }
 
         /// <summary>
@@ -650,6 +657,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(price.Value)}";
+                priceText = AppendRagfairBanLabel(priceText, item);
                 if (Settings.EnableColorCoding.Value)
                 {
                     priceText = PriceColorCoding.ApplyColor(priceText, pricePerSlotForColor);
@@ -702,6 +710,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)} (x{stackCount})";
+                totalPriceText = AppendRagfairBanLabel(totalPriceText, item);
                 if (Settings.EnableColorCoding.Value)
                 {
                     totalPriceText = PriceColorCoding.ApplyColor(totalPriceText, pricePerSlotForColor);
@@ -828,6 +837,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                totalPriceText = AppendRagfairBanLabel(totalPriceText, ammoBox);
                 if (avgPenetration.HasValue && Settings.UseCaliberPenetrationPower.Value)
                 {
                     totalPriceText = AmmoColorCoding.ApplyPenetrationColor(totalPriceText, avgPenetration.Value);
@@ -1033,6 +1043,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                totalPriceText = AppendRagfairBanLabel(totalPriceText, magazine);
                 if (avgPenetration.HasValue && Settings.UseCaliberPenetrationPower.Value)
                 {
                     totalPriceText = AmmoColorCoding.ApplyPenetrationColor(totalPriceText, avgPenetration.Value);
@@ -1121,6 +1132,7 @@ namespace QuickPrice.Patches
                 {
                     priceText += $" (x{stackCount})";
                 }
+                priceText = AppendRagfairBanLabel(priceText, ammoItem);
 
                 if (ammoItem.PenetrationPower > 0 && Settings.UseCaliberPenetrationPower.Value)
                 {
@@ -1181,6 +1193,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(armorPrice.Value)}";
+                priceText = AppendRagfairBanLabel(priceText, armor);
                 if (Settings.EnableColorCoding.Value)
                 {
                     priceText = PriceColorCoding.ApplyColor(priceText, pricePerSlotForColor);
@@ -1264,6 +1277,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(platePrice.Value)}";
+                priceText = AppendRagfairBanLabel(priceText, plate);
                 if (Settings.EnableColorCoding.Value)
                 {
                     priceText = PriceColorCoding.ApplyColor(priceText, pricePerSlotForColor);
@@ -1355,6 +1369,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                totalPriceText = AppendRagfairBanLabel(totalPriceText, mod);
                 if (Settings.EnableColorCoding.Value)
                 {
                     totalPriceText = PriceColorCoding.ApplyColor(totalPriceText, pricePerSlotForColor);
@@ -1563,6 +1578,7 @@ namespace QuickPrice.Patches
                 if (showRagfairPrice)
                 {
                     string containerPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(containerPrice.Value)}";
+                    containerPriceText = AppendRagfairBanLabel(containerPriceText, container);
                     if (Settings.EnableColorCoding.Value)
                     {
                         containerPriceText = PriceColorCoding.ApplyColor(containerPriceText, pricePerSlotForColor);
@@ -1608,6 +1624,7 @@ namespace QuickPrice.Patches
                 if (showRagfairPrice)
                 {
                     string containerPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(containerPrice.Value)}";
+                    containerPriceText = AppendRagfairBanLabel(containerPriceText, container);
                     if (Settings.EnableColorCoding.Value)
                     {
                         containerPriceText = PriceColorCoding.ApplyColor(containerPriceText, pricePerSlotForColor);
@@ -1654,6 +1671,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                totalPriceText = AppendRagfairBanLabel(totalPriceText, container);
                 if (Settings.EnableColorCoding.Value)
                 {
                     totalPriceText = PriceColorCoding.ApplyColor(totalPriceText, totalPricePerSlot);

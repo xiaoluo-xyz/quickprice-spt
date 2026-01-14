@@ -33,7 +33,7 @@ namespace QuickPrice.Server
         /// <summary>
         /// Mod的版本号
         /// </summary>
-        public override SemanticVersioning.Version Version { get; init; } = SemanticVersioning.Version.Parse("1.0.0");
+        public override SemanticVersioning.Version Version { get; init; } = SemanticVersioning.Version.Parse("1.3.1");
 
         /// <summary>
         /// 支持的SPT版本范围

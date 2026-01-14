@@ -11,6 +11,8 @@
   <PropertyGroup>
     <TarkovDir Condition=" '$(TarkovDir)' == '' ">D:\Apps\TKFBao\TKFClient.0.16.9.0.40087\</TarkovDir>
     <TarkovDebugDir Condition=" '$(TarkovDebugDir)' == '' ">D:\Apps\TKFBao\TKFClient.0.16.9.0.40087\</TarkovDebugDir>
+    <TarkovDir Condition=" '$(TarkovDir)' != '' ">$([MSBuild]::EnsureTrailingSlash('$(TarkovDir)'))</TarkovDir>
+    <TarkovDebugDir Condition=" '$(TarkovDebugDir)' != '' ">$([MSBuild]::EnsureTrailingSlash('$(TarkovDebugDir)'))</TarkovDebugDir>
     <TarkovPluginsSPTDir>$(TarkovDir)BepInEx\plugins\spt\</TarkovPluginsSPTDir>
     <TarkovManagedDir>$(TarkovDir)EscapeFromTarkov_Data\Managed\</TarkovManagedDir>
     <TarkovBepInExCoreDir>$(TarkovDir)BepInEx\core\</TarkovBepInExCoreDir>

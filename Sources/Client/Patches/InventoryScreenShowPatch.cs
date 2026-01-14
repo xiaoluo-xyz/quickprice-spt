@@ -31,6 +31,9 @@ namespace QuickPrice.Patches
         {
             try
             {
+                // 进入游戏后刷新跳蚤禁售列表（后台异步，不阻塞）
+                PriceDataService.Instance.StartLoadRagfairBannedItems();
+
                 // 检查配置是否启用自动刷新
                 if (!Settings.AutoRefreshOnOpenInventory.Value)
                 {

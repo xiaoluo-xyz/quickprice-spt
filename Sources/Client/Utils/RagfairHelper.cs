@@ -40,12 +40,22 @@ namespace QuickPrice.Utils
         /// <returns>如果禁售返回标签文本，否则返回空字符串</returns>
         public static string GetRagfairBanLabel(Item item)
         {
+            return GetRagfairBanInlineLabel(item);
+        }
+
+        /// <summary>
+        /// 获取跳蚤市场禁售标签文本（行内）
+        /// </summary>
+        /// <param name="item">物品</param>
+        /// <returns>如果禁售返回标签文本，否则返回空字符串</returns>
+        public static string GetRagfairBanInlineLabel(Item item)
+        {
             var canSell = CanSellOnRagfair(item);
 
             if (canSell.HasValue && !canSell.Value)
             {
                 // 物品不能在跳蚤市场出售
-                return "\n<color=#FF6B6B>[跳蚤禁售]</color>";
+                return " <color=#FF6B6B>[跳蚤禁售]</color>";
             }
 
             return "";
@@ -55,14 +65,11 @@ namespace QuickPrice.Utils
         /// 检查物品是否可以在跳蚤市场上出售（用于显示价格判断）
         /// </summary>
         /// <param name="item">要检查的物品</param>
-        /// <returns>true = 可以显示跳蚤价格, false = 禁售不显示跳蚤价格</returns>
+        /// <returns>true = 显示跳蚤价格（禁售时追加标签）</returns>
         public static bool ShouldShowRagfairPrice(Item item)
         {
-            var canSell = CanSellOnRagfair(item);
-
-            // 如果无法确定（null），默认显示价格
-            // 如果明确禁售（false），则不显示
-            return !canSell.HasValue || canSell.Value;
+            // 禁售也显示价格，仅追加禁售标签
+            return true;
         }
     }
 }

@@ -42,7 +42,7 @@ namespace QuickPrice.Server
         {
             try
             {
-                _logger.Info("[QuickPrice v1.0.0] Server mod loading...", null);
+                _logger.Info("[QuickPrice v1.3.1] Server mod loading...", null);
 
                 // 路由已通过依赖注入自动注册
                 // QuickPriceStaticRouter 在构造时自动注册以下端点：
@@ -50,7 +50,7 @@ namespace QuickPrice.Server
                 // 2. /showMeTheMoney/getStaticPriceTable
                 // 3. /showMeTheMoney/getDynamicPriceTable
 
-                _logger.Success("[QuickPrice v1.0.0] Server mod loaded successfully. Ready to make some money...", null);
+                _logger.Success("[QuickPrice v1.3.1] Server mod loaded successfully. Ready to make some money...", null);
                 _logger.Info("[QuickPrice] HTTP routes registered successfully", null);
             }
             catch (Exception ex)

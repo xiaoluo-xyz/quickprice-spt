@@ -422,6 +422,11 @@ namespace QuickPrice.Patches
                     }
                 }
 
+                if (!string.IsNullOrEmpty(priceInfo))
+                {
+                    priceInfo += RagfairHelper.GetRagfairBanInlineLabel(item);
+                }
+
                 // ===== 组合最终文本 =====
                 string finalText = coloredText + priceInfo;
 

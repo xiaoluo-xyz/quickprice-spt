@@ -2,7 +2,7 @@
 
 **SPT (单机塔科夫) 4.0.0 实时物品价格显示插件**
 
-![版本](https://img.shields.io/badge/%E7%89%88%E6%9C%AC-1.0.0-blue)
+![版本](https://img.shields.io/badge/%E7%89%88%E6%9C%AC-1.3.1-blue)
 ![SPT](https://img.shields.io/badge/SPT-4.0.0-green)
 ![许可证](https://img.shields.io/badge/%E8%AE%B8%E5%8F%AF%E8%AF%81-MIT-green)
 
@@ -234,6 +234,13 @@ QuickPrice 包含智能性能优化：
 ---
 
 ## 📝 更新日志
+
+### 版本 1.3.1 (2026-01-13)
+- 客户端新增日志开关，Debug/Warn 输出统一受控，调试开关变更后即时生效
+- 新增搜索音效与时长设置，提供六档时长预设（合并 SearchPatch）
+- 服务端新增可热加载配置（启用/缓存过期/自动刷新）与禁用流程
+- 缓存刷新聚合跳蚤报价并记录耗时，初始化后读取动态黑名单并输出统计
+- 构建与文档：服务端引用统一为 SptDir，新增 XML 说明文档
 
 ### 版本 1.0.0 (2025-10-21)
 - 首次发布

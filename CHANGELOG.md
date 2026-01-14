@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.3.1] - 2026-01-13
+
+### Added
+- Client log gating for debug/warn output and improved debug toggle behavior
+- Search sound/time settings with six-tier duration presets (SearchPatch merge)
+- Server reloadable config (Enable/CacheTimeout/AutoRefresh) with disable flow
+- Ragfair dynamic blacklist load logging and SPT XML intro docs
+
+### Changed
+- Aggregated ragfair offers during cache refresh and log refresh duration
+
+---
+
 ## [1.0.0] - 2025-10-21
 
 ### 🎉 Initial Release
@@ -107,4 +120,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+[1.3.1]: https://github.com/2324834989/quickprice-spt/releases/tag/v1.3.1
 [1.0.0]: https://github.com/2324834989/quickprice-spt/releases/tag/v1.0.0

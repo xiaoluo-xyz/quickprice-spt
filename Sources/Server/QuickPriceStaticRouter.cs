@@ -14,8 +14,8 @@ using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Utils;
 using SPTarkov.Server.Core.Services;
-using System.Collections.Generic;
 using System.Collections;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace QuickPrice.Server
@@ -47,6 +47,28 @@ namespace QuickPrice.Server
         private static DateTime? _configLastWriteUtc;
         private static readonly object _ragfairBlacklistLogLock = new object();
         private static bool _ragfairBlacklistLogged = false;
+        private static readonly object _ragfairDynamicSettingsLock = new object();
+        private static bool _ragfairDynamicSettingsLoaded = false;
+        private static HashSet<string> _ragfairCustomBlacklist = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static HashSet<string> _ragfairCustomCategoryBlacklist = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static bool _ragfairEnableBsgList = false;
+        private static bool _ragfairEnableQuestList = false;
+        private static bool _ragfairEnableCustomItemCategoryList = false;
+        private static bool _ragfairTraderItems = false;
+        private static bool _ragfairDamagedAmmoPacks = false;
+        private static readonly object _ragfairFullBlacklistLogLock = new object();
+        private static bool _ragfairFullBlacklistLogged = false;
+        private static readonly object _itemNameLock = new object();
+        private static Dictionary<string, string>? _itemNameCache;
+        private static readonly Dictionary<string, PropertyInfo?> _itemPropertyCache = new Dictionary<string, PropertyInfo?>(StringComparer.Ordinal);
+        private static readonly Dictionary<string, FieldInfo?> _itemFieldCache = new Dictionary<string, FieldInfo?>(StringComparer.Ordinal);
+        private static readonly object _itemConfigLock = new object();
+        private static bool _itemConfigBlacklistLoaded = false;
+        private static HashSet<string> _itemConfigBlacklist = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly object _ragfairBannedCacheLock = new object();
+        private static Dictionary<string, RagfairBannedItemInfo>? _ragfairBannedItemInfoCache;
+        private static List<string>? _ragfairBannedItemIdCache;
+        private static DateTime _ragfairBannedCacheTime = DateTime.MinValue;
 
         public QuickPriceStaticRouter(
             JsonUtil jsonUtil,
@@ -175,53 +197,7 @@ namespace QuickPrice.Server
 
             try
             {
-                var ragfairConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "ragfair.json");
-                if (!File.Exists(ragfairConfigPath))
-                {
-                    _loggerStatic?.Warning($"[QuickPrice-RagfairBlacklist] 找不到 ragfair.json: {ragfairConfigPath}", null);
-                    return;
-                }
-
-                var json = File.ReadAllText(ragfairConfigPath);
-                var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-                var configType = Type.GetType("SPTarkov.Server.Core.Models.Spt.Config.RagfairConfig, SPTarkov.Server.Core");
-                if (configType == null)
-                {
-                    _loggerStatic?.Warning("[QuickPrice-RagfairBlacklist] 未找到 RagfairConfig 类型，无法解析配置", null);
-                    return;
-                }
-
-                var ragfairConfig = JsonSerializer.Deserialize(json, configType, options);
-                var dynamicValue = configType.GetProperty("Dynamic", BindingFlags.Public | BindingFlags.Instance)?.GetValue(ragfairConfig);
-                var blacklistValue = dynamicValue?.GetType().GetProperty("Blacklist", BindingFlags.Public | BindingFlags.Instance)?.GetValue(dynamicValue);
-
-                if (blacklistValue == null)
-                {
-                    _loggerStatic?.Warning("[QuickPrice-RagfairBlacklist] ragfairConfig.Dynamic.Blacklist 为空", null);
-                    return;
-                }
-
-                var blacklistType = blacklistValue.GetType();
-                var customItems = ExtractStringList(blacklistType.GetProperty("Custom")?.GetValue(blacklistValue));
-                var customCategories = ExtractStringList(blacklistType.GetProperty("CustomItemCategoryList")?.GetValue(blacklistValue));
-
-                var enableBsgList = ExtractBool(blacklistType.GetProperty("EnableBsgList")?.GetValue(blacklistValue));
-                var enableQuestList = ExtractBool(blacklistType.GetProperty("EnableQuestList")?.GetValue(blacklistValue));
-                var enableCustomItemCategoryList = ExtractBool(blacklistType.GetProperty("EnableCustomItemCategoryList")?.GetValue(blacklistValue));
-                var traderItems = ExtractBool(blacklistType.GetProperty("TraderItems")?.GetValue(blacklistValue));
-                var damagedAmmoPacks = ExtractBool(blacklistType.GetProperty("DamagedAmmoPacks")?.GetValue(blacklistValue));
-
-                _loggerStatic?.Info(
-                    $"[QuickPrice-RagfairBlacklist] 动态黑名单加载完成: Custom={customItems.Count}, CustomCategory={customCategories.Count}, " +
-                    $"EnableBsgList={enableBsgList}, EnableQuestList={enableQuestList}, EnableCustomItemCategoryList={enableCustomItemCategoryList}, " +
-                    $"TraderItems={traderItems}, DamagedAmmoPacks={damagedAmmoPacks}",
-                    null);
-
-                if (customItems.Count > 0)
-                    _loggerStatic?.Info($"[QuickPrice-RagfairBlacklist] Custom Items: {string.Join(", ", customItems)}", null);
-
-                if (customCategories.Count > 0)
-                    _loggerStatic?.Info($"[QuickPrice-RagfairBlacklist] Custom Categories: {string.Join(", ", customCategories)}", null);
+                LoadRagfairDynamicBlacklistSettings();
             }
             catch (Exception ex)
             {
@@ -229,15 +205,72 @@ namespace QuickPrice.Server
             }
         }
 
-        private static List<string> ExtractStringList(object? value)
+        private static void LoadRagfairDynamicBlacklistSettings()
         {
-            if (value is IEnumerable enumerable)
+            lock (_ragfairDynamicSettingsLock)
+            {
+                if (_ragfairDynamicSettingsLoaded)
+                    return;
+                _ragfairDynamicSettingsLoaded = true;
+
+                var ragfairConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "ragfair.json");
+                if (!File.Exists(ragfairConfigPath))
+                {
+                    return;
+                }
+
+                var json = File.ReadAllText(ragfairConfigPath);
+                using var doc = JsonDocument.Parse(json);
+                if (!doc.RootElement.TryGetProperty("dynamic", out var dynamicElement))
+                {
+                    return;
+                }
+
+                if (!dynamicElement.TryGetProperty("blacklist", out var blacklistElement))
+                {
+                    return;
+                }
+
+                _ragfairCustomBlacklist = new HashSet<string>(ReadStringArray(blacklistElement, "custom"), StringComparer.OrdinalIgnoreCase);
+                _ragfairCustomCategoryBlacklist = new HashSet<string>(ReadStringArray(blacklistElement, "customItemCategoryList"), StringComparer.OrdinalIgnoreCase);
+                _ragfairEnableBsgList = ReadBool(blacklistElement, "enableBsgList");
+                _ragfairEnableQuestList = ReadBool(blacklistElement, "enableQuestList");
+                _ragfairEnableCustomItemCategoryList = ReadBool(blacklistElement, "enableCustomItemCategoryList");
+                _ragfairTraderItems = ReadBool(blacklistElement, "traderItems");
+                _ragfairDamagedAmmoPacks = ReadBool(blacklistElement, "damagedAmmoPacks");
+            }
+        }
+
+        private static void LoadItemConfigBlacklist()
+        {
+            lock (_itemConfigLock)
+            {
+                if (_itemConfigBlacklistLoaded)
+                    return;
+                _itemConfigBlacklistLoaded = true;
+
+                var itemConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "item.json");
+                if (!File.Exists(itemConfigPath))
+                {
+                    return;
+                }
+
+                using var doc = JsonDocument.Parse(File.ReadAllText(itemConfigPath));
+                _itemConfigBlacklist = new HashSet<string>(
+                    ReadStringArray(doc.RootElement, "blacklist"),
+                    StringComparer.OrdinalIgnoreCase);
+            }
+        }
+
+        private static List<string> ReadStringArray(JsonElement element, string propertyName)
+        {
+            if (element.TryGetProperty(propertyName, out var value) && value.ValueKind == JsonValueKind.Array)
             {
                 var result = new List<string>();
-                foreach (var item in enumerable)
+                foreach (var item in value.EnumerateArray())
                 {
-                    if (item is string s)
-                        result.Add(s);
+                    if (item.ValueKind == JsonValueKind.String)
+                        result.Add(item.GetString() ?? string.Empty);
                 }
                 return result;
             }
@@ -245,9 +278,35 @@ namespace QuickPrice.Server
             return new List<string>();
         }
 
-        private static bool ExtractBool(object? value)
+        private static bool ReadBool(JsonElement element, string propertyName)
         {
-            return value is bool b && b;
+            if (element.TryGetProperty(propertyName, out var value)
+                && (value.ValueKind == JsonValueKind.True || value.ValueKind == JsonValueKind.False))
+            {
+                return value.GetBoolean();
+            }
+
+            return false;
+        }
+
+        private static void TryLogFullRagfairBlacklistAfterDatabaseReady()
+        {
+            lock (_ragfairFullBlacklistLogLock)
+            {
+                if (_ragfairFullBlacklistLogged)
+                    return;
+                _ragfairFullBlacklistLogged = true;
+            }
+
+            try
+            {
+                var bannedItems = GetOrBuildRagfairBannedItemInfoCache();
+                _loggerStatic?.Info($"[QuickPrice-RagfairBan] 完整禁售列表已生成: {bannedItems.Count} 个物品", null);
+            }
+            catch (Exception ex)
+            {
+                _loggerStatic?.Error($"[QuickPrice-RagfairBan] 构建完整禁售列表失败: {ex.Message}", ex);
+            }
         }
 
         private static bool IsEnabled()
@@ -693,6 +752,9 @@ namespace QuickPrice.Server
                 _loggerStatic?.Info("[QuickPrice] 再等待10秒以确保跳蚤市场报价生成完成...", null);
                 await Task.Delay(10000);
 
+                // 数据库就绪后尝试构建完整禁售列表
+                TryLogFullRagfairBlacklistAfterDatabaseReady();
+
                 _loggerStatic?.Info("========================================", null);
                 _loggerStatic?.Info("[QuickPrice] 开始预加载动态价格缓存...", null);
                 _loggerStatic?.Info("========================================", null);
@@ -776,6 +838,488 @@ namespace QuickPrice.Server
             }
         }
 
+        private sealed class RagfairBannedItemInfo
+        {
+            public RagfairBannedItemInfo(string itemId, string itemName)
+            {
+                ItemId = itemId;
+                ItemName = itemName;
+                Reasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            public string ItemId { get; }
+            public string ItemName { get; set; }
+            public HashSet<string> Reasons { get; }
+        }
+
+        private static Dictionary<string, RagfairBannedItemInfo> BuildRagfairBannedItemInfoMapUsingAllSources()
+        {
+            LoadRagfairDynamicBlacklistSettings();
+            LoadItemConfigBlacklist();
+
+            var result = new Dictionary<string, RagfairBannedItemInfo>(StringComparer.OrdinalIgnoreCase);
+
+            AddItemsFromItemsJson(result);
+
+            if (_databaseServiceStatic != null)
+            {
+                try
+                {
+                    var tables = _databaseServiceStatic.GetTables();
+                    if (tables?.Templates?.Items != null && tables.Templates.Items.Count > 0)
+                        AddItemsToRagfairBannedInfoMap(tables.Templates.Items, result);
+                }
+                catch (Exception ex)
+                {
+                    _loggerStatic?.Error($"[QuickPrice-RagfairBan] 读取数据库物品模板失败: {ex.Message}", ex);
+                }
+            }
+
+            AddBlacklistEntriesNotInTemplates(result);
+
+            return result;
+        }
+
+        private static Dictionary<string, RagfairBannedItemInfo> GetOrBuildRagfairBannedItemInfoCache()
+        {
+            lock (_ragfairBannedCacheLock)
+            {
+                if (_ragfairBannedItemInfoCache == null)
+                {
+                    _ragfairBannedItemInfoCache = BuildRagfairBannedItemInfoMapUsingAllSources();
+                    _ragfairBannedItemIdCache = _ragfairBannedItemInfoCache.Keys.ToList();
+                    _ragfairBannedCacheTime = DateTime.Now;
+                }
+
+                return _ragfairBannedItemInfoCache;
+            }
+        }
+
+        private static List<string> GetOrBuildRagfairBannedItemIdCache()
+        {
+            lock (_ragfairBannedCacheLock)
+            {
+                if (_ragfairBannedItemIdCache == null)
+                {
+                    var infoCache = GetOrBuildRagfairBannedItemInfoCache();
+                    _ragfairBannedItemIdCache = infoCache.Keys.ToList();
+                }
+
+                return _ragfairBannedItemIdCache;
+            }
+        }
+
+        private static void AddItemsFromItemsJson(Dictionary<string, RagfairBannedItemInfo> result)
+        {
+            var itemsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "templates", "items.json");
+            if (!File.Exists(itemsPath))
+            {
+                return;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(File.ReadAllText(itemsPath));
+                foreach (var entry in doc.RootElement.EnumerateObject())
+                {
+                    var itemId = entry.Name;
+                    if (string.IsNullOrWhiteSpace(itemId))
+                        continue;
+
+                    EvaluateRagfairBlacklistForItem(result, itemId, entry.Value);
+                }
+            }
+            catch (Exception ex)
+            {
+                _loggerStatic?.Error($"[QuickPrice-RagfairBan] 解析 items.json 失败: {ex.Message}", ex);
+            }
+        }
+
+        private static void AddItemsToRagfairBannedInfoMap<TKey, TItem>(
+            IDictionary<TKey, TItem> items,
+            Dictionary<string, RagfairBannedItemInfo> result)
+            where TItem : class
+        {
+            foreach (var itemEntry in items)
+            {
+                var itemId = itemEntry.Key?.ToString();
+                if (string.IsNullOrWhiteSpace(itemId))
+                    continue;
+
+                EvaluateRagfairBlacklistForItem(result, itemId, itemEntry.Value as object);
+            }
+        }
+
+        private static void EvaluateRagfairBlacklistForItem(
+            Dictionary<string, RagfairBannedItemInfo> result,
+            string itemId,
+            object? itemObj)
+        {
+            var canSell = GetBoolPropertyFromItem(itemObj, "CanSellOnRagfair");
+            var isQuestItem = GetBoolPropertyFromItem(itemObj, "QuestItem", "IsQuestItem");
+            var parentId = GetStringPropertyFromItem(itemObj, "ParentId", "Parent", "_parent");
+
+            if (_ragfairEnableBsgList)
+            {
+                if (canSell == false)
+                    AddBannedItem(result, itemId, itemObj, "noSell");
+            }
+
+            if (_ragfairEnableQuestList && isQuestItem == true)
+                AddBannedItem(result, itemId, itemObj, "quest");
+
+            if (_ragfairCustomBlacklist.Contains(itemId))
+                AddBannedItem(result, itemId, itemObj, "custom");
+
+            if (_ragfairEnableCustomItemCategoryList
+                && !string.IsNullOrWhiteSpace(parentId)
+                && _ragfairCustomCategoryBlacklist.Contains(parentId))
+            {
+                AddBannedItem(result, itemId, itemObj, "category");
+            }
+
+            if (_itemConfigBlacklist.Contains(itemId))
+                AddBannedItem(result, itemId, itemObj, "itemConfig");
+        }
+
+        private static void AddBlacklistEntriesNotInTemplates(Dictionary<string, RagfairBannedItemInfo> result)
+        {
+            foreach (var itemId in _ragfairCustomBlacklist)
+                AddBannedItem(result, itemId, null, "custom");
+
+            foreach (var itemId in _itemConfigBlacklist)
+                AddBannedItem(result, itemId, null, "itemConfig");
+        }
+
+        private static Dictionary<string, RagfairBannedItemInfo> BuildRagfairBannedItemInfoMap<TKey, TItem>(
+            IDictionary<TKey, TItem> items)
+            where TItem : class
+        {
+            var result = new Dictionary<string, RagfairBannedItemInfo>(StringComparer.OrdinalIgnoreCase);
+            AddItemsToRagfairBannedInfoMap(items, result);
+            AddBlacklistEntriesNotInTemplates(result);
+            return result;
+        }
+
+        private static void AddBannedItem(
+            Dictionary<string, RagfairBannedItemInfo> map,
+            string itemId,
+            object? itemObj,
+            string reason)
+        {
+            if (!map.TryGetValue(itemId, out var info))
+            {
+                var name = GetItemDisplayName(itemId, itemObj);
+                info = new RagfairBannedItemInfo(itemId, name);
+                map[itemId] = info;
+            }
+
+            info.Reasons.Add(reason);
+        }
+
+        private static string GetItemDisplayName(string itemId, object? itemObj)
+        {
+            var localized = GetLocalizedItemName(itemId);
+            if (!string.IsNullOrWhiteSpace(localized))
+                return localized!;
+
+            if (itemObj != null)
+            {
+                var name = GetStringPropertyFromItem(itemObj, "Name", "_name", "ShortName");
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name!;
+            }
+
+            return itemId;
+        }
+
+        private static string? GetLocalizedItemName(string itemId)
+        {
+            EnsureItemNameCache();
+            if (_itemNameCache != null && _itemNameCache.TryGetValue(itemId, out var name))
+                return name;
+            return null;
+        }
+
+        private static void EnsureItemNameCache()
+        {
+            lock (_itemNameLock)
+            {
+                if (_itemNameCache != null)
+                    return;
+
+                _itemNameCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+                var candidates = new[]
+                {
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "locales", "global", "zh-cn.json"),
+                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "locales", "global", "en.json")
+                };
+
+                foreach (var path in candidates)
+                {
+                    if (!File.Exists(path))
+                        continue;
+
+                    using var doc = JsonDocument.Parse(File.ReadAllText(path));
+                    foreach (var entry in doc.RootElement.EnumerateObject())
+                    {
+                        if (!entry.Name.EndsWith(" Name", StringComparison.Ordinal))
+                            continue;
+
+                        var id = entry.Name.Substring(0, entry.Name.Length - " Name".Length);
+                        if (_itemNameCache.ContainsKey(id))
+                            continue;
+
+                        if (entry.Value.ValueKind == JsonValueKind.String)
+                        {
+                            var name = entry.Value.GetString();
+                            if (!string.IsNullOrWhiteSpace(name))
+                                _itemNameCache[id] = name;
+                        }
+                    }
+
+                if (_itemNameCache.Count > 0)
+                    break;
+                }
+
+                if (_itemNameCache.Count == 0)
+                    return;
+            }
+        }
+
+        private static bool? GetBoolPropertyFromItem(object? itemObj, params string[] names)
+        {
+            if (itemObj == null)
+                return null;
+
+            if (TryGetBoolFromObject(itemObj, names, out var value))
+                return value;
+
+            var props = GetItemProps(itemObj);
+            if (props != null && TryGetBoolFromObject(props, names, out value))
+                return value;
+
+            return null;
+        }
+
+        private static string? GetStringPropertyFromItem(object? itemObj, params string[] names)
+        {
+            if (itemObj == null)
+                return null;
+
+            if (TryGetStringFromObject(itemObj, names, out var value))
+                return value;
+
+            var props = GetItemProps(itemObj);
+            if (props != null && TryGetStringFromObject(props, names, out value))
+                return value;
+
+            return null;
+        }
+
+        private static bool TryGetBoolFromObject(object obj, string[] names, out bool? value)
+        {
+            if (TryGetValueFromObject(obj, names, out var raw))
+            {
+                if (TryConvertBool(raw, out value))
+                    return true;
+            }
+
+            foreach (var name in names)
+            {
+                var rawMember = GetMemberValue(obj, name);
+                if (TryConvertBool(rawMember, out value))
+                    return true;
+            }
+
+            value = null;
+            return false;
+        }
+
+        private static bool TryGetStringFromObject(object obj, string[] names, out string? value)
+        {
+            if (TryGetValueFromObject(obj, names, out var raw))
+            {
+                if (TryConvertString(raw, out value))
+                    return true;
+            }
+
+            foreach (var name in names)
+            {
+                var rawMember = GetMemberValue(obj, name);
+                if (TryConvertString(rawMember, out value))
+                    return true;
+            }
+
+            value = null;
+            return false;
+        }
+
+        private static object? GetItemProps(object itemObj)
+        {
+            if (TryGetValueFromDictionary(itemObj, new[] { "Props", "_props" }, out var dictValue))
+                return dictValue;
+
+            if (TryGetValueFromJsonElement(itemObj, new[] { "Props", "_props" }, out var jsonValue))
+                return jsonValue;
+
+            return GetPropertyValue(itemObj, "Props") ?? GetPropertyValue(itemObj, "_props");
+        }
+
+        private static object? GetPropertyValue(object obj, string name)
+        {
+            return GetMemberValue(obj, name);
+        }
+
+        private static PropertyInfo? GetCachedProperty(Type type, string name)
+        {
+            var key = $"{type.FullName}:{name}";
+            if (_itemPropertyCache.TryGetValue(key, out var cached))
+                return cached;
+
+            var prop = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+            _itemPropertyCache[key] = prop;
+            return prop;
+        }
+
+        private static FieldInfo? GetCachedField(Type type, string name)
+        {
+            var key = $"{type.FullName}:{name}";
+            if (_itemFieldCache.TryGetValue(key, out var cached))
+                return cached;
+
+            var field = type.GetField(name, BindingFlags.Public | BindingFlags.Instance);
+            _itemFieldCache[key] = field;
+            return field;
+        }
+
+        private static object? GetMemberValue(object obj, string name)
+        {
+            var prop = GetCachedProperty(obj.GetType(), name);
+            if (prop != null)
+                return prop.GetValue(obj);
+
+            var field = GetCachedField(obj.GetType(), name);
+            return field?.GetValue(obj);
+        }
+
+        private static bool TryGetValueFromObject(object obj, string[] names, out object? value)
+        {
+            if (TryGetValueFromDictionary(obj, names, out value))
+                return true;
+
+            if (TryGetValueFromJsonElement(obj, names, out value))
+                return true;
+
+            value = null;
+            return false;
+        }
+
+        private static bool TryGetValueFromDictionary(object obj, string[] names, out object? value)
+        {
+            if (obj is IDictionary dict)
+            {
+                foreach (var name in names)
+                {
+                    if (dict.Contains(name))
+                    {
+                        value = dict[name];
+                        return true;
+                    }
+                }
+
+                foreach (DictionaryEntry entry in dict)
+                {
+                    if (entry.Key is string key)
+                    {
+                        foreach (var name in names)
+                        {
+                            if (string.Equals(key, name, StringComparison.OrdinalIgnoreCase))
+                            {
+                                value = entry.Value;
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+
+            value = null;
+            return false;
+        }
+
+        private static bool TryGetValueFromJsonElement(object obj, string[] names, out object? value)
+        {
+            if (obj is JsonElement element)
+            {
+                foreach (var name in names)
+                {
+                    if (element.TryGetProperty(name, out var prop))
+                    {
+                        value = prop;
+                        return true;
+                    }
+                }
+            }
+
+            value = null;
+            return false;
+        }
+
+        private static bool TryConvertBool(object? raw, out bool? value)
+        {
+            if (raw is bool b)
+            {
+                value = b;
+                return true;
+            }
+
+            if (raw is JsonElement element)
+            {
+                if (element.ValueKind == JsonValueKind.True || element.ValueKind == JsonValueKind.False)
+                {
+                    value = element.GetBoolean();
+                    return true;
+                }
+            }
+
+            value = null;
+            return false;
+        }
+
+        private static bool TryConvertString(object? raw, out string? value)
+        {
+            if (raw is string s && !string.IsNullOrWhiteSpace(s))
+            {
+                value = s;
+                return true;
+            }
+
+            if (raw is JsonElement element && element.ValueKind == JsonValueKind.String)
+            {
+                var str = element.GetString();
+                if (!string.IsNullOrWhiteSpace(str))
+                {
+                    value = str;
+                    return true;
+                }
+            }
+
+            if (raw != null)
+            {
+                var str = raw.ToString();
+                if (!string.IsNullOrWhiteSpace(str))
+                {
+                    value = str;
+                    return true;
+                }
+            }
+
+            value = null;
+            return false;
+        }
+
         /// <summary>
         /// 处理获取跳蚤市场禁售物品列表的请求
         /// </summary>
@@ -790,110 +1334,9 @@ namespace QuickPrice.Server
                 if (!IsEnabled())
                     return new ValueTask<string>(JsonSerializer.Serialize(new List<string>()));
 
-                var bannedItems = new HashSet<string>();
-                int totalItems = 0;
-                int checkedItems = 0;
+                var bannedItems = GetOrBuildRagfairBannedItemIdCache();
 
-                if (_databaseServiceStatic != null)
-                {
-                    try
-                    {
-                        var tables = _databaseServiceStatic.GetTables();
-
-                        // 遍历所有物品模板，检查跳蚤市场相关属性
-                        if (tables?.Templates?.Items != null)
-                        {
-                            totalItems = tables.Templates.Items.Count;
-                            _loggerStatic?.Info($"[QuickPrice-RagfairBan] 开始检查 {totalItems} 个物品模板...", null);
-
-                            // 打印第一个物品的详细信息（用于调试）
-                            var firstItem = tables.Templates.Items.FirstOrDefault();
-                            if (firstItem.Value != null)
-                            {
-                                var firstItemType = firstItem.Value.GetType();
-                                _loggerStatic?.Info($"[QuickPrice-RagfairBan] 物品模板类型: {firstItemType.FullName}", null);
-
-                                // 列出所有属性名
-                                var props = firstItemType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                                var propNames = string.Join(", ", props.Select(p => p.Name).Take(20));
-                                _loggerStatic?.Info($"[QuickPrice-RagfairBan] 前20个属性: {propNames}", null);
-                            }
-
-                            foreach (var itemEntry in tables.Templates.Items)
-                            {
-                                try
-                                {
-                                    checkedItems++;
-                                    string itemId = itemEntry.Key;
-                                    var item = itemEntry.Value;
-
-                                    // 使用反射检查物品是否可以在跳蚤市场出售
-                                    var itemType = item.GetType();
-
-                                    // 尝试获取 CanSellOnRagfair 属性
-                                    var canSellProp = itemType.GetProperty("CanSellOnRagfair",
-                                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                                    var canRequireProp = itemType.GetProperty("CanRequireOnRagfair",
-                                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-
-                                    bool? canSell = null;
-                                    bool? canRequire = null;
-
-                                    if (canSellProp != null)
-                                    {
-                                        var value = canSellProp.GetValue(item);
-                                        if (value is bool b)
-                                            canSell = b;
-                                    }
-
-                                    if (canRequireProp != null)
-                                    {
-                                        var value = canRequireProp.GetValue(item);
-                                        if (value is bool b)
-                                            canRequire = b;
-                                    }
-
-                                    // 如果任一属性明确禁止，则加入禁售列表
-                                    if (canSell == false || canRequire == false)
-                                    {
-                                        bannedItems.Add(itemId);
-                                        // 打印前10个禁售物品（用于验证）
-                                        if (bannedItems.Count <= 10)
-                                        {
-                                            _loggerStatic?.Info($"[QuickPrice-RagfairBan] 找到禁售物品: {itemId} (CanSell={canSell}, CanRequire={canRequire})", null);
-                                        }
-                                    }
-                                }
-                                catch (Exception itemEx)
-                                {
-                                    // 某个物品检查失败，跳过继续处理其他物品
-                                    if (checkedItems <= 5)
-                                    {
-                                        _loggerStatic?.Warning($"[QuickPrice-RagfairBan] 检查物品失败: {itemEx.Message}", null);
-                                    }
-                                    continue;
-                                }
-                            }
-
-                            _loggerStatic?.Info($"[QuickPrice-RagfairBan] 检查完成: 总共{totalItems}个物品, 检查了{checkedItems}个, 找到{bannedItems.Count}个禁售物品", null);
-                        }
-                        else
-                        {
-                            _loggerStatic?.Warning("[QuickPrice-RagfairBan] Templates.Items is null", null);
-                        }
-                    }
-                    catch (Exception dbEx)
-                    {
-                        _loggerStatic?.Error($"[QuickPrice-RagfairBan] Error accessing database: {dbEx.Message}", dbEx);
-                    }
-                }
-                else
-                {
-                    _loggerStatic?.Warning("[QuickPrice-RagfairBan] DatabaseService is not available", null);
-                }
-
-                // 返回禁售物品ID列表
-                var json = JsonSerializer.Serialize(bannedItems.ToList());
+                var json = JsonSerializer.Serialize(bannedItems);
                 return new ValueTask<string>(json);
             }
             catch (Exception ex)
