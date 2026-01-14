@@ -21,6 +21,7 @@ namespace QuickPrice.Services
         public static TraderPriceService Instance => _instance ??= new TraderPriceService();
 
         private bool _hasShownInitTip = false;  // 是否已显示初始化提示
+        private static readonly MongoID RoubleCurrencyId = new MongoID("5449016a4bdc2d6f028b456f");
 
         // ===== 性能优化：缓存系统 =====
 
@@ -49,6 +50,16 @@ namespace QuickPrice.Services
             {
                 // ===== 优化1: 先查缓存 =====
                 string cacheKey = item.TemplateId;
+                if (TryGetServerTraderPrice(cacheKey, out var serverPrice, out var serverReady))
+                {
+                    return serverPrice;
+                }
+
+                if (serverReady)
+                {
+                    return null;
+                }
+
                 if (_priceCache.TryGetValue(cacheKey, out var cachedPrice))
                 {
                     // Plugin.Log.LogDebug($"💾 命中缓存: {item.LocalizedName()} = {cachedPrice.PriceInRoubles:N0}₽");
@@ -171,6 +182,30 @@ namespace QuickPrice.Services
                 Plugin.Log.LogError($"❌ 获取商人价格失败: {ex.Message}");
                 return null;
             }
+        }
+
+        private bool TryGetServerTraderPrice(string templateId, out TraderPrice price, out bool serverReady)
+        {
+            price = null;
+            serverReady = PriceDataService.Instance.IsTraderBuybackCacheReady();
+
+            if (!serverReady)
+                return false;
+
+            if (!PriceDataService.Instance.TryGetTraderBuybackPrice(templateId, out var entry))
+                return false;
+
+            var amount = (int)Math.Round(entry.PriceRoubles, 0);
+            price = new TraderPrice(
+                entry.TraderId,
+                entry.TraderName,
+                amount,
+                RoubleCurrencyId,
+                1.0,
+                entry.PriceRoubles
+            );
+
+            return true;
         }
 
         /// <summary>

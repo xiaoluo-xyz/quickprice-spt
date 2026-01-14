@@ -465,7 +465,8 @@ namespace QuickPrice.Patches
                         // 应用颜色编码（只给名称和价格着色，不给缩进和前缀着色）
                         if (Settings.EnableColorCoding.Value)
                         {
-                            string coloredNameAndPrice = PriceColorCoding.ApplyColor($"{mod.Name} {priceStr}", mod.Price);
+                            double priceForColor = mod.PricePerSlot > 0 ? mod.PricePerSlot : mod.Price;
+                            string coloredNameAndPrice = PriceColorCoding.ApplyColor($"{mod.Name} {priceStr}", priceForColor);
                             sb.Append($"\n | {indent}{prefix}{coloredNameAndPrice}");
                         }
                         else
@@ -1437,7 +1438,8 @@ namespace QuickPrice.Patches
 
                             if (Settings.EnableColorCoding.Value)
                             {
-                                string coloredNameAndPrice = PriceColorCoding.ApplyColor($"{modInfo.Name} {priceStr}", modInfo.Price);
+                                double priceForColor = modInfo.PricePerSlot > 0 ? modInfo.PricePerSlot : modInfo.Price;
+                                string coloredNameAndPrice = PriceColorCoding.ApplyColor($"{modInfo.Name} {priceStr}", priceForColor);
                                 sb.Append($"\n | {indent}{prefix}{coloredNameAndPrice}");
                             }
                             else

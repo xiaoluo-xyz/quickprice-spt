@@ -6,11 +6,13 @@
 using System.Text.Json;
 using System.Diagnostics;
 using System.Reflection;
+using IoPath = System.IO.Path;
 using SPTarkov.DI.Annotations;
 using SPTarkov.Server.Core.DI;
 using SPTarkov.Server.Core.Helpers;
 using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
+using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Utils;
 using SPTarkov.Server.Core.Utils;
 using SPTarkov.Server.Core.Services;
@@ -38,6 +40,13 @@ namespace QuickPrice.Server
         private static bool _isUpdatingCache = false;
         private static System.Threading.Timer? _autoRefreshTimer; // 自动刷新定时器
         private static bool _isPreloadStarted = false; // 防止重复预加载
+        private static bool _isTraderBuybackPreloadStarted = false; // 防止重复预加载
+
+        // 商人回收价格缓存
+        private static Dictionary<string, TraderBuybackPrice>? _cachedTraderBuybackPrices;
+        private static DateTime _traderBuybackCacheTime = DateTime.MinValue;
+        private static readonly object _traderBuybackCacheLock = new object();
+        private static bool _isUpdatingTraderBuybackCache = false;
 
         // 配置
         private static QuickPriceConfig? _config;
@@ -108,8 +117,17 @@ namespace QuickPrice.Server
                 if (IsEnabled())
                 {
                     // 启动时预加载动态价格缓存（异步，不阻塞启动）
-                    _isPreloadStarted = true;
-                    _ = PreloadDynamicPriceCacheAsync();
+                    if (!_isPreloadStarted)
+                    {
+                        _isPreloadStarted = true;
+                        _ = PreloadDynamicPriceCacheAsync();
+                    }
+
+                    if (!_isTraderBuybackPreloadStarted)
+                    {
+                        _isTraderBuybackPreloadStarted = true;
+                        _ = PreloadTraderBuybackPriceCacheAsync();
+                    }
                 }
                 else
                 {
@@ -213,7 +231,7 @@ namespace QuickPrice.Server
                     return;
                 _ragfairDynamicSettingsLoaded = true;
 
-                var ragfairConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "ragfair.json");
+                var ragfairConfigPath = IoPath.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "ragfair.json");
                 if (!File.Exists(ragfairConfigPath))
                 {
                     return;
@@ -249,7 +267,7 @@ namespace QuickPrice.Server
                     return;
                 _itemConfigBlacklistLoaded = true;
 
-                var itemConfigPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "item.json");
+                var itemConfigPath = IoPath.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "configs", "item.json");
                 if (!File.Exists(itemConfigPath))
                 {
                     return;
@@ -321,10 +339,10 @@ namespace QuickPrice.Server
                 var assemblyLocation = Assembly.GetExecutingAssembly().Location;
                 if (!string.IsNullOrWhiteSpace(assemblyLocation))
                 {
-                    var assemblyDir = Path.GetDirectoryName(assemblyLocation);
+                    var assemblyDir = IoPath.GetDirectoryName(assemblyLocation);
                     if (!string.IsNullOrWhiteSpace(assemblyDir))
                     {
-                        var candidate = Path.Combine(assemblyDir, "config.json");
+                        var candidate = IoPath.Combine(assemblyDir, "config.json");
                         if (File.Exists(candidate))
                             return candidate;
                     }
@@ -334,8 +352,8 @@ namespace QuickPrice.Server
             {
             }
 
-            var fallbackModPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "user", "mods", "QuickPrice");
-            return Path.Combine(fallbackModPath, "config.json");
+            var fallbackModPath = IoPath.Combine(AppDomain.CurrentDomain.BaseDirectory, "user", "mods", "QuickPrice");
+            return IoPath.Combine(fallbackModPath, "config.json");
         }
 
         /// <summary>
@@ -366,7 +384,14 @@ namespace QuickPrice.Server
                         await HandleGetDynamicPriceTable(url, info, sessionId)
                 ),
 
-                // 路由4: 获取跳蚤市场禁售物品列表
+                // 路由4: 获取商人回收价格表（最高价）
+                new RouteAction<EmptyRequestData>(
+                    "/showMeTheMoney/getTraderBuybackPriceTable",
+                    async (url, info, sessionId, output) =>
+                        await HandleGetTraderBuybackPriceTable(url, info, sessionId)
+                ),
+
+                // 路由5: 获取跳蚤市场禁售物品列表
                 new RouteAction<EmptyRequestData>(
                     "/showMeTheMoney/getRagfairBannedItems",
                     async (url, info, sessionId, output) =>
@@ -559,6 +584,57 @@ namespace QuickPrice.Server
         }
 
         /// <summary>
+        /// 处理获取商人回收价格表的请求（每个物品保留最高价商人）
+        /// </summary>
+        private static ValueTask<string> HandleGetTraderBuybackPriceTable(
+            string url,
+            EmptyRequestData info,
+            MongoId sessionId)
+        {
+            try
+            {
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                    return new ValueTask<string>(JsonSerializer.Serialize(new Dictionary<string, TraderBuybackPrice>()));
+
+                var cacheAgeSeconds = (DateTime.Now - _traderBuybackCacheTime).TotalSeconds;
+                int cacheTimeoutSeconds = _config?.CacheTimeoutSeconds ?? 300;
+                bool isCacheValid = _cachedTraderBuybackPrices != null && cacheTimeoutSeconds > 0 && cacheAgeSeconds < cacheTimeoutSeconds;
+
+                if (isCacheValid)
+                {
+                    var cacheAgeMinutes = cacheAgeSeconds / 60d;
+                    _loggerStatic?.Info($"[QuickPrice] 返回缓存的商人回收价格（{_cachedTraderBuybackPrices!.Count} 个物品，缓存年龄: {cacheAgeMinutes:F1} 分钟）", null);
+                    var json = JsonSerializer.Serialize(_cachedTraderBuybackPrices);
+                    return new ValueTask<string>(json);
+                }
+
+                if (!_isUpdatingTraderBuybackCache)
+                {
+                    _ = UpdateTraderBuybackPriceCacheAsync();
+                }
+
+                if (_cachedTraderBuybackPrices != null)
+                {
+                    var cacheAgeMinutes = cacheAgeSeconds / 60d;
+                    _loggerStatic?.Info($"[QuickPrice] 返回旧缓存的商人回收价格，同时后台更新（{_cachedTraderBuybackPrices.Count} 个物品，缓存年龄: {cacheAgeMinutes:F1} 分钟）", null);
+                    var json = JsonSerializer.Serialize(_cachedTraderBuybackPrices);
+                    return new ValueTask<string>(json);
+                }
+
+                _loggerStatic?.Warning("[QuickPrice] 无商人回收价格缓存，返回空表", null);
+                var fallback = JsonSerializer.Serialize(new Dictionary<string, TraderBuybackPrice>());
+                return new ValueTask<string>(fallback);
+            }
+            catch (Exception ex)
+            {
+                _loggerStatic?.Error($"[QuickPrice] Error in GetTraderBuybackPriceTable: {ex.Message}", ex);
+                var fallback = JsonSerializer.Serialize(new Dictionary<string, TraderBuybackPrice>());
+                return new ValueTask<string>(fallback);
+            }
+        }
+
+        /// <summary>
         /// 异步更新动态价格缓存（并行优化）
         /// </summary>
         private static async Task UpdateDynamicPriceCacheAsync()
@@ -698,6 +774,61 @@ namespace QuickPrice.Server
         }
 
         /// <summary>
+        /// 异步更新商人回收价格缓存
+        /// </summary>
+        private static async Task UpdateTraderBuybackPriceCacheAsync()
+        {
+            lock (_traderBuybackCacheLock)
+            {
+                if (_isUpdatingTraderBuybackCache)
+                {
+                    _loggerStatic?.Info("[QuickPrice] 商人回收价格缓存更新已在进行中，跳过", null);
+                    return;
+                }
+                _isUpdatingTraderBuybackCache = true;
+            }
+
+            try
+            {
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                {
+                    _loggerStatic?.Info("[QuickPrice] 模组已禁用，跳过商人回收价格缓存更新", null);
+                    return;
+                }
+
+                if (_databaseServiceStatic == null)
+                {
+                    _loggerStatic?.Warning("[QuickPrice] DatabaseService 不可用，无法更新商人回收价格缓存", null);
+                    return;
+                }
+
+                var stopwatch = Stopwatch.StartNew();
+                var cache = await Task.Run(() => BuildTraderBuybackPriceCache());
+                stopwatch.Stop();
+
+                lock (_traderBuybackCacheLock)
+                {
+                    _cachedTraderBuybackPrices = cache;
+                    _traderBuybackCacheTime = DateTime.Now;
+                }
+
+                _loggerStatic?.Info($"[QuickPrice] 商人回收价格缓存已更新: {cache.Count} 个物品，耗时 {stopwatch.ElapsedMilliseconds} ms", null);
+            }
+            catch (Exception ex)
+            {
+                _loggerStatic?.Error($"[QuickPrice] 商人回收价格缓存更新失败: {ex.Message}", ex);
+            }
+            finally
+            {
+                lock (_traderBuybackCacheLock)
+                {
+                    _isUpdatingTraderBuybackCache = false;
+                }
+            }
+        }
+
+        /// <summary>
         /// 服务器启动时预加载动态价格缓存
         /// </summary>
         private static async Task PreloadDynamicPriceCacheAsync()
@@ -786,6 +917,84 @@ namespace QuickPrice.Server
         }
 
         /// <summary>
+        /// 服务器启动时预加载商人回收价格缓存
+        /// </summary>
+        private static async Task PreloadTraderBuybackPriceCacheAsync()
+        {
+            try
+            {
+                EnsureConfigLoaded();
+                if (!IsEnabled())
+                {
+                    _loggerStatic?.Info("[QuickPrice] 模组已禁用，跳过商人回收价格预加载", null);
+                    return;
+                }
+
+                _loggerStatic?.Info("[QuickPrice] 正在等待数据库初始化（商人回收缓存）...", null);
+
+                int retryDelayMs = 1000;
+                int attempts = 0;
+
+                while (true)
+                {
+                    await Task.Delay(retryDelayMs);
+                    attempts++;
+
+                    try
+                    {
+                        if (_databaseServiceStatic != null)
+                        {
+                            var tables = _databaseServiceStatic.GetTables();
+                            if (tables?.Traders != null
+                                && tables.Traders.Count > 0
+                                && tables.Templates?.Handbook?.Items != null
+                                && tables.Templates.Handbook.Items.Count > 0
+                                && tables.Templates.Items != null
+                                && tables.Templates.Items.Count > 0)
+                            {
+                                var elapsedSeconds = attempts * retryDelayMs / 1000;
+                                _loggerStatic?.Info($"[QuickPrice] 数据库已就绪（商人回收缓存，耗时 {elapsedSeconds} 秒）", null);
+                                break;
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // 数据库还未就绪，继续等待
+                    }
+
+                    if (attempts % 10 == 0)
+                    {
+                        _loggerStatic?.Info($"[QuickPrice] 仍在等待数据库（商人回收缓存）...（已等待 {attempts * retryDelayMs / 1000} 秒）", null);
+                    }
+                }
+
+                _loggerStatic?.Info("========================================", null);
+                _loggerStatic?.Info("[QuickPrice] 开始预加载商人回收价格缓存...", null);
+                _loggerStatic?.Info("========================================", null);
+
+                await UpdateTraderBuybackPriceCacheAsync();
+
+                if (_cachedTraderBuybackPrices != null && _cachedTraderBuybackPrices.Count > 0)
+                {
+                    _loggerStatic?.Success("========================================", null);
+                    _loggerStatic?.Success($"[QuickPrice] 商人回收缓存预加载完成！{_cachedTraderBuybackPrices.Count} 个物品已就绪", null);
+                    _loggerStatic?.Success("========================================", null);
+                }
+                else
+                {
+                    _loggerStatic?.Warning("========================================", null);
+                    _loggerStatic?.Warning("[QuickPrice] 商人回收缓存预加载失败，将在请求时再计算", null);
+                    _loggerStatic?.Warning("========================================", null);
+                }
+            }
+            catch (Exception ex)
+            {
+                _loggerStatic?.Error($"[QuickPrice] 商人回收缓存预加载失败: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
         /// 启动自动刷新定时器（根据配置的间隔刷新）
         /// </summary>
         private static void StartAutoRefreshTimer()
@@ -824,6 +1033,7 @@ namespace QuickPrice.Server
                         _loggerStatic?.Info("========================================", null);
 
                         await UpdateDynamicPriceCacheAsync();
+                        await UpdateTraderBuybackPriceCacheAsync();
                     },
                     null,
                     refreshInterval,  // 首次执行延迟
@@ -835,6 +1045,233 @@ namespace QuickPrice.Server
             catch (Exception ex)
             {
                 _loggerStatic?.Error($"[QuickPrice] 启动自动刷新定时器失败: {ex.Message}", ex);
+            }
+        }
+
+        private sealed class TraderBuybackPrice
+        {
+            public string TraderId { get; set; } = string.Empty;
+            public string TraderName { get; set; } = string.Empty;
+            public double PriceRoubles { get; set; }
+        }
+
+        private static Dictionary<string, TraderBuybackPrice> BuildTraderBuybackPriceCache()
+        {
+            var result = new Dictionary<string, TraderBuybackPrice>(StringComparer.OrdinalIgnoreCase);
+
+            if (_databaseServiceStatic == null)
+                return result;
+
+            var tables = _databaseServiceStatic.GetTables();
+            if (tables?.Traders == null || tables.Traders.Count == 0)
+            {
+                _loggerStatic?.Warning("[QuickPrice] Traders 表为空，无法构建商人回收缓存", null);
+                return result;
+            }
+
+            if (tables.Templates?.Handbook?.Items == null || tables.Templates.Handbook.Items.Count == 0)
+            {
+                _loggerStatic?.Warning("[QuickPrice] Handbook 价格表为空，无法构建商人回收缓存", null);
+                return result;
+            }
+
+            if (tables.Templates.Items == null || tables.Templates.Items.Count == 0)
+            {
+                _loggerStatic?.Warning("[QuickPrice] Templates.Items 为空，无法构建商人回收缓存", null);
+                return result;
+            }
+
+            var handbookPrices = new Dictionary<MongoId, double>();
+            foreach (var handbookItem in tables.Templates.Handbook.Items)
+            {
+                var price = handbookItem.Price.GetValueOrDefault();
+                if (price <= 0)
+                    continue;
+
+                handbookPrices[handbookItem.Id] = price;
+            }
+
+            if (handbookPrices.Count == 0)
+            {
+                _loggerStatic?.Warning("[QuickPrice] Handbook 价格表为空，无法构建商人回收缓存", null);
+                return result;
+            }
+
+            var debugCounts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            var debugFirstLines = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            bool debugLogged = false;
+
+            foreach (var traderEntry in tables.Traders)
+            {
+                var traderId = traderEntry.Key;
+                var trader = traderEntry.Value;
+                var traderBase = trader?.Base;
+                if (traderBase == null)
+                    continue;
+
+                var buyPriceCoef = traderBase.LoyaltyLevels?.FirstOrDefault()?.BuyPriceCoefficient ?? 0d;
+                var percent = 100d - buyPriceCoef;
+                if (percent <= 0)
+                    continue;
+
+                var buyCategories = traderBase.ItemsBuy?.Category;
+                var buyIdList = traderBase.ItemsBuy?.IdList;
+                if ((buyCategories == null || buyCategories.Count == 0) && (buyIdList == null || buyIdList.Count == 0))
+                    continue;
+
+                var traderName = GetTraderDisplayName(traderBase, traderId);
+                var baseClassCache = new Dictionary<MongoId, bool>();
+
+                foreach (var priceEntry in handbookPrices)
+                {
+                    var itemTpl = priceEntry.Key;
+                    if (!CanTraderBuyItem(itemTpl, buyCategories, buyIdList, tables.Templates.Items, baseClassCache))
+                        continue;
+
+                    var priceRoubles = Math.Round(priceEntry.Value * percent / 100d, 0);
+                    if (priceRoubles <= 0)
+                        continue;
+
+                    var itemIdStr = itemTpl.ToString();
+                    if (!result.TryGetValue(itemIdStr, out var existing) || priceRoubles > existing.PriceRoubles)
+                    {
+                        result[itemIdStr] = new TraderBuybackPrice
+                        {
+                            TraderId = traderId.ToString(),
+                            TraderName = traderName,
+                            PriceRoubles = priceRoubles
+                        };
+                    }
+
+                    if (!debugLogged)
+                    {
+                        if (!debugCounts.TryGetValue(itemIdStr, out var count))
+                        {
+                            count = 0;
+                        }
+
+                        count++;
+                        debugCounts[itemIdStr] = count;
+
+                        var line = $"{traderName}({traderId}) = {priceRoubles:N0}₽ (buyCoef {buyPriceCoef:0.##})";
+                        if (count == 1)
+                        {
+                            debugFirstLines[itemIdStr] = line;
+                        }
+                        else if (count == 2)
+                        {
+                            var lines = new List<string>(2);
+                            if (debugFirstLines.TryGetValue(itemIdStr, out var firstLine))
+                                lines.Add(firstLine);
+                            lines.Add(line);
+
+                            tables.Templates.Items.TryGetValue(itemTpl, out var debugTemplate);
+                            LogTraderBuybackDebug(itemIdStr, debugTemplate, lines, hasHandbookPrice: true);
+
+                            debugLogged = true;
+                            debugCounts.Clear();
+                            debugFirstLines.Clear();
+                        }
+                    }
+                }
+            }
+
+            if (!debugLogged)
+            {
+                _loggerStatic?.Warning("[QuickPrice-TraderBuyback] 未找到具有多个商人回收报价的物品", null);
+            }
+
+            return result;
+        }
+
+        private static string GetTraderDisplayName(TraderBase traderBase, MongoId traderId)
+        {
+            if (!string.IsNullOrWhiteSpace(traderBase.Nickname))
+                return traderBase.Nickname;
+            if (!string.IsNullOrWhiteSpace(traderBase.Name))
+                return traderBase.Name;
+            return traderId.ToString();
+        }
+
+        private static bool CanTraderBuyItem(
+            MongoId itemTpl,
+            HashSet<MongoId>? buyCategories,
+            HashSet<MongoId>? buyIdList,
+            Dictionary<MongoId, TemplateItem> templates,
+            Dictionary<MongoId, bool> baseClassCache)
+        {
+            if (buyIdList != null && buyIdList.Contains(itemTpl))
+                return true;
+
+            if (buyCategories == null || buyCategories.Count == 0)
+                return false;
+
+            return IsOfBaseclasses(itemTpl, buyCategories, templates, baseClassCache);
+        }
+
+        private static bool IsOfBaseclasses(
+            MongoId itemTpl,
+            HashSet<MongoId> baseClasses,
+            Dictionary<MongoId, TemplateItem> templates,
+            Dictionary<MongoId, bool> cache)
+        {
+            if (cache.TryGetValue(itemTpl, out var cached))
+                return cached;
+
+            if (baseClasses.Contains(itemTpl))
+            {
+                cache[itemTpl] = true;
+                return true;
+            }
+
+            var current = itemTpl;
+            var visited = new HashSet<MongoId>();
+            while (!current.IsEmpty && templates.TryGetValue(current, out var template))
+            {
+                var parent = template.Parent;
+                if (parent.IsEmpty)
+                    break;
+
+                if (baseClasses.Contains(parent))
+                {
+                    cache[itemTpl] = true;
+                    return true;
+                }
+
+                if (!visited.Add(parent))
+                    break;
+
+                current = parent;
+            }
+
+            cache[itemTpl] = false;
+            return false;
+        }
+
+        private static void LogTraderBuybackDebug(
+            string itemTpl,
+            TemplateItem? template,
+            List<string> lines,
+            bool hasHandbookPrice)
+        {
+            var itemName = GetItemDisplayName(itemTpl, template);
+
+            if (!hasHandbookPrice)
+            {
+                _loggerStatic?.Warning($"[QuickPrice-TraderBuyback] 物品无手册价格: {itemName} ({itemTpl})", null);
+                return;
+            }
+
+            if (lines.Count == 0)
+            {
+                _loggerStatic?.Warning($"[QuickPrice-TraderBuyback] 未找到商人回收报价: {itemName} ({itemTpl})", null);
+                return;
+            }
+
+            _loggerStatic?.Info($"[QuickPrice-TraderBuyback] {itemName} ({itemTpl}) 回收报价 {lines.Count} 条:", null);
+            foreach (var line in lines)
+            {
+                _loggerStatic?.Info($"[QuickPrice-TraderBuyback] {line}", null);
             }
         }
 
@@ -911,7 +1348,7 @@ namespace QuickPrice.Server
 
         private static void AddItemsFromItemsJson(Dictionary<string, RagfairBannedItemInfo> result)
         {
-            var itemsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "templates", "items.json");
+            var itemsPath = IoPath.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "templates", "items.json");
             if (!File.Exists(itemsPath))
             {
                 return;
@@ -1052,8 +1489,8 @@ namespace QuickPrice.Server
 
                 var candidates = new[]
                 {
-                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "locales", "global", "zh-cn.json"),
-                    Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "locales", "global", "en.json")
+                    IoPath.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "locales", "global", "zh-cn.json"),
+                    IoPath.Combine(AppDomain.CurrentDomain.BaseDirectory, "SPT_Data", "database", "locales", "global", "en.json")
                 };
 
                 foreach (var path in candidates)

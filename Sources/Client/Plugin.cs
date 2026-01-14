@@ -51,6 +51,9 @@ namespace QuickPrice
                 // v2.0: 启动异步商人数据检查（不阻塞游戏启动）
                 _ = InitializeTradersAsync();
 
+                // 启动异步商人回收价格加载（不阻塞游戏启动）
+                _ = InitializeTraderBuybackPricesAsync();
+
                 // v2.0: 启动异步跳蚤禁售物品列表加载（不阻塞游戏启动）
                 _ = InitializeRagfairBannedItemsAsync();
 
@@ -237,6 +240,27 @@ namespace QuickPrice
             {
                 Log.LogError($"❌ 加载跳蚤禁售列表失败: {ex.Message}");
                 ClientLog.Warning("   所有物品将默认显示跳蚤价格");
+            }
+        }
+
+        /// <summary>
+        /// 异步初始化商人回收价格数据
+        /// 在游戏启动时后台加载，不阻塞主线程
+        /// </summary>
+        private async Task InitializeTraderBuybackPricesAsync()
+        {
+            try
+            {
+                var success = await PriceDataService.Instance.UpdateTraderBuybackPricesAsync();
+
+                if (!success)
+                {
+                    ClientLog.Warning("⚠️ 商人回收价格加载失败，将在使用时重试");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Log.LogError($"❌ 加载商人回收价格失败: {ex.Message}");
             }
         }
 

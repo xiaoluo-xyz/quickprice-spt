@@ -43,5 +43,6 @@ namespace QuickPrice.Server
         /// </summary>
         [JsonPropertyName("Notes")]
         public string Notes { get; set; } = "QuickPrice 服务端配置文件";
+
     }
 }

@@ -71,11 +71,11 @@ namespace QuickPrice.Config
         public static ConfigEntry<float> SearchTimeLevel6;    // 搜索时间：品质等级6
 
         // 默认阈值常量
-        private const int DEFAULT_PRICE_THRESHOLD_1 = 5000;
-        private const int DEFAULT_PRICE_THRESHOLD_2 = 25000;
-        private const int DEFAULT_PRICE_THRESHOLD_3 = 60000;
+        private const int DEFAULT_PRICE_THRESHOLD_1 = 25000;
+        private const int DEFAULT_PRICE_THRESHOLD_2 = 45000;
+        private const int DEFAULT_PRICE_THRESHOLD_3 = 70000;
         private const int DEFAULT_PRICE_THRESHOLD_4 = 100000;
-        private const int DEFAULT_PRICE_THRESHOLD_5 = 200000;
+        private const int DEFAULT_PRICE_THRESHOLD_5 = 250000;
 
         private const int DEFAULT_PENETRATION_THRESHOLD_1 = 20;
         private const int DEFAULT_PENETRATION_THRESHOLD_2 = 30;

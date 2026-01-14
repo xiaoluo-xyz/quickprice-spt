@@ -13,6 +13,7 @@ namespace QuickPrice.Services
     {
         public string Name;      // 配件名称
         public double Price;     // 配件价格
+        public double PricePerSlot; // 配件单格价值
         public int Depth;        // 层级深度（0=根配件）
     }
 
@@ -210,11 +211,15 @@ namespace QuickPrice.Services
                 var modPrice = PriceDataService.Instance.GetPrice(mod.TemplateId);
                 if (modPrice.HasValue)
                 {
+                    int slots = GetItemSlots(mod);
+                    double pricePerSlot = slots > 0 ? modPrice.Value / slots : modPrice.Value;
+
                     // 添加到列表
                     modInfoList.Add(new ModInfo
                     {
                         Name = mod.LocalizedName(),
                         Price = modPrice.Value,
+                        PricePerSlot = pricePerSlot,
                         Depth = depth
                     });
 

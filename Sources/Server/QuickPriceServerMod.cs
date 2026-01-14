@@ -49,6 +49,8 @@ namespace QuickPrice.Server
                 // 1. /showMeTheMoney/getCurrencyPurchasePrices
                 // 2. /showMeTheMoney/getStaticPriceTable
                 // 3. /showMeTheMoney/getDynamicPriceTable
+                // 4. /showMeTheMoney/getTraderBuybackPriceTable
+                // 5. /showMeTheMoney/getRagfairBannedItems
 
                 _logger.Success("[QuickPrice v1.3.1] Server mod loaded successfully. Ready to make some money...", null);
                 _logger.Info("[QuickPrice] HTTP routes registered successfully", null);

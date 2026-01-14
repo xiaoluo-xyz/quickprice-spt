@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Newtonsoft.Json;
 using SPT.Common.Http;
 using QuickPrice.Config;
+using QuickPrice.Models;
 using QuickPrice.Logging;
 
 namespace QuickPrice.Services
@@ -26,6 +27,11 @@ namespace QuickPrice.Services
         private HashSet<string> _ragfairBannedItems;
         private DateTime _bannedItemsLastUpdate = DateTime.MinValue;
         private Task<bool> _bannedItemsUpdateTask; // 禁售物品异步任务追踪
+
+        // 商人回收价格缓存
+        private Dictionary<string, TraderBuybackPrice> _traderBuybackCache;
+        private DateTime _traderBuybackLastUpdate = DateTime.MinValue;
+        private Task<bool> _traderBuybackUpdateTask;
 
         private PriceDataService() { }
 
@@ -134,6 +140,17 @@ namespace QuickPrice.Services
         public int GetCachedPriceCount() => _priceCache?.Count ?? 0;
 
         /// <summary>
+        /// 获取商人回收价格缓存数量
+        /// </summary>
+        public int GetTraderBuybackCachedCount()
+        {
+            lock (_lockObject)
+            {
+                return _traderBuybackCache?.Count ?? 0;
+            }
+        }
+
+        /// <summary>
         /// 手动刷新价格数据
         /// </summary>
         public void ForceRefresh()
@@ -148,6 +165,14 @@ namespace QuickPrice.Services
         public double GetCacheAge()
         {
             return (DateTime.Now - _lastUpdate).TotalSeconds;
+        }
+
+        /// <summary>
+        /// 获取商人回收缓存年龄（秒）
+        /// </summary>
+        public double GetTraderBuybackCacheAge()
+        {
+            return (DateTime.Now - _traderBuybackLastUpdate).TotalSeconds;
         }
 
         // ========== v2.0 新增功能 ==========
@@ -247,6 +272,83 @@ namespace QuickPrice.Services
         public bool IsCacheExpired()
         {
             return ShouldRefresh();
+        }
+
+        /// <summary>
+        /// 检查商人回收缓存是否可用
+        /// </summary>
+        public bool IsTraderBuybackCacheReady()
+        {
+            lock (_lockObject)
+            {
+                return _traderBuybackCache != null && _traderBuybackCache.Count > 0;
+            }
+        }
+
+        /// <summary>
+        /// 获取商人回收价格（线程安全）
+        /// </summary>
+        public bool TryGetTraderBuybackPrice(string templateId, out TraderBuybackPrice price)
+        {
+            price = null;
+            if (string.IsNullOrEmpty(templateId))
+                return false;
+
+            lock (_lockObject)
+            {
+                if (_traderBuybackCache == null)
+                    return false;
+
+                return _traderBuybackCache.TryGetValue(templateId, out price);
+            }
+        }
+
+        /// <summary>
+        /// 异步获取商人回收价格表
+        /// </summary>
+        public async Task<bool> UpdateTraderBuybackPricesAsync(bool force = false)
+        {
+            if (!force && IsTraderBuybackCacheReady())
+            {
+                return true;
+            }
+
+            if (_traderBuybackUpdateTask != null && !_traderBuybackUpdateTask.IsCompleted)
+            {
+                await _traderBuybackUpdateTask;
+                return IsTraderBuybackCacheReady();
+            }
+
+            _traderBuybackUpdateTask = Task.Run(() =>
+            {
+                try
+                {
+                    string json = RequestHandler.GetJson("/showMeTheMoney/getTraderBuybackPriceTable");
+
+                    if (!string.IsNullOrEmpty(json))
+                    {
+                        var newCache = JsonConvert.DeserializeObject<Dictionary<string, TraderBuybackPrice>>(json);
+
+                        lock (_lockObject)
+                        {
+                            _traderBuybackCache = newCache ?? new Dictionary<string, TraderBuybackPrice>();
+                            _traderBuybackLastUpdate = DateTime.Now;
+                        }
+
+                        return true;
+                    }
+
+                    ClientLog.Warning("⚠️ 商人回收价格返回空数据");
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogError($"❌ 获取商人回收价格失败: {ex.Message}");
+                    return false;
+                }
+            });
+
+            return await _traderBuybackUpdateTask;
         }
 
         // ========== 跳蚤市场禁售物品功能 ==========
