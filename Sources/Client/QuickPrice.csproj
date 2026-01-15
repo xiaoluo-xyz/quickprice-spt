@@ -9,8 +9,8 @@
   </PropertyGroup>
 
   <PropertyGroup>
-    <TarkovDir Condition=" '$(TarkovDir)' == '' ">D:\Apps\TKFBao\TKFClient.0.16.9.0.40087\</TarkovDir>
-    <TarkovDebugDir Condition=" '$(TarkovDebugDir)' == '' ">D:\Apps\TKFBao\TKFClient.0.16.9.0.40087\</TarkovDebugDir>
+    <TarkovDir Condition=" '$(TarkovDir)' == '' ">E:\Games\TKFClient.0.16.9.0.40087\</TarkovDir>
+    <TarkovDebugDir Condition=" '$(TarkovDebugDir)' == '' ">E:\Games\TKFClient.0.16.9.0.40087\</TarkovDebugDir>
     <TarkovDir Condition=" '$(TarkovDir)' != '' ">$([MSBuild]::EnsureTrailingSlash('$(TarkovDir)'))</TarkovDir>
     <TarkovDebugDir Condition=" '$(TarkovDebugDir)' != '' ">$([MSBuild]::EnsureTrailingSlash('$(TarkovDebugDir)'))</TarkovDebugDir>
     <TarkovPluginsSPTDir>$(TarkovDir)BepInEx\plugins\spt\</TarkovPluginsSPTDir>
@@ -40,11 +40,20 @@
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(TarkovManagedDir)UnityEngine.CoreModule.dll</HintPath>
     </Reference>
+    <Reference Include="UnityEngine.AudioModule">
+      <HintPath>$(TarkovManagedDir)UnityEngine.AudioModule.dll</HintPath>
+    </Reference>
     <Reference Include="UnityEngine.UI">
       <HintPath>$(TarkovManagedDir)UnityEngine.UI.dll</HintPath>
     </Reference>
     <Reference Include="UnityEngine.InputLegacyModule">
       <HintPath>$(TarkovManagedDir)UnityEngine.InputLegacyModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestModule">
+      <HintPath>$(TarkovManagedDir)UnityEngine.UnityWebRequestModule.dll</HintPath>
+    </Reference>
+    <Reference Include="UnityEngine.UnityWebRequestAudioModule">
+      <HintPath>$(TarkovManagedDir)UnityEngine.UnityWebRequestAudioModule.dll</HintPath>
     </Reference>
     <Reference Include="Unity.TextMeshPro">
       <HintPath>$(TarkovManagedDir)Unity.TextMeshPro.dll</HintPath>
@@ -102,6 +111,7 @@
   <Target Name="PostBuild" AfterTargets="PostBuildEvent">
     <ItemGroup>
       <OutputDLL Include="$(ProjectDir)$(OutDir)$(TargetName).dll" />
+      <SearchSoundFiles Include="$(ProjectDir)..\..\Assets\sounds\search\*.*" />
     </ItemGroup>
 
     <!-- Copies the output to tarkov game folder -->
@@ -109,12 +119,22 @@
       SourceFiles="@(OutputDLL)"
       DestinationFolder="$(TarkovDir)BepInEx\plugins\QuickPrice\"
     />
+    <Copy
+      SourceFiles="@(SearchSoundFiles)"
+      DestinationFolder="$(TarkovDir)BepInEx\plugins\QuickPrice\sounds\search\"
+      SkipUnchangedFiles="true"
+    />
 
     <!-- Creates a release zip file -->
     <RemoveDir Directories="$(ProjectDir)release" />
     <Copy
       SourceFiles="@(OutputDLL)"
       DestinationFolder="$(ProjectDir)release\QuickPrice\BepInEx\plugins\QuickPrice\"
+    />
+    <Copy
+      SourceFiles="@(SearchSoundFiles)"
+      DestinationFolder="$(ProjectDir)release\QuickPrice\BepInEx\plugins\QuickPrice\sounds\search\"
+      SkipUnchangedFiles="true"
     />
     <ZipDirectory
       SourceDirectory="$(ProjectDir)release\QuickPrice\"

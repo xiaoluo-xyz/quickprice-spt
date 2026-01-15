@@ -44,12 +44,15 @@ set "CLIENT_TARGET=%RELEASE_DIR%\BepInEx\plugins\QuickPrice"
 set "SERVER_TARGET=%RELEASE_DIR%\SPT\user\mods\QuickPrice"
 if not exist "%CLIENT_TARGET%" mkdir "%CLIENT_TARGET%"
 if not exist "%SERVER_TARGET%" mkdir "%SERVER_TARGET%"
+set "CLIENT_SOUNDS=%CLIENT_TARGET%\sounds\search"
+if not exist "%CLIENT_SOUNDS%" mkdir "%CLIENT_SOUNDS%"
 
 copy /Y "%REPO_DIR%Sources\Client\bin\Release\net471\QuickPrice.dll" "%CLIENT_TARGET%\" >nul
 copy /Y "%REPO_DIR%Sources\Server\bin\Release\quickprice.dll" "%SERVER_TARGET%\" >nul
 copy /Y "%REPO_DIR%Sources\Server\bin\Release\mod.json" "%SERVER_TARGET%\" >nul
 copy /Y "%REPO_DIR%Sources\Server\bin\Release\config.json" "%SERVER_TARGET%\" >nul
 copy /Y "%REPO_DIR%Sources\Server\bin\Release\ragfair_ban_blacklist.json" "%SERVER_TARGET%\" >nul
+if exist "%REPO_DIR%Assets\sounds\search" xcopy "%REPO_DIR%Assets\sounds\search\*.*" "%CLIENT_SOUNDS%\" /E /I /Y >nul
 
 (
   echo QuickPrice v%VERSION%

@@ -131,6 +131,7 @@ Press **F12** in-game to open BepInEx Configuration Manager and customize:
 - **Show Weapon Mods Price** - Include attachment values
 - **Require Ctrl Key** - Hold Ctrl to show prices (default: enabled)
 - **Tooltip Delay** - Hover delay before showing prices (0-2 seconds)
+- **Show Tooltip Underline** - Draw an underline separator beneath the item name
 
 ### Display Settings
 - **Enable Color Coding** - Color items by value/penetration

@@ -27,8 +27,7 @@ namespace QuickPrice.Patches
 
                 try
                 {
-                    PlaySound(item);
-                    return false; // 跳过原始方法
+                    return !TryPlayCustomSound(item); // 播放成功则跳过原始方法
                 }
                 catch (Exception ex)
                 {
@@ -51,8 +50,7 @@ namespace QuickPrice.Patches
 
                     try
                     {
-                        SearchSoundPatch.PlaySound(item);
-                        return false; // 跳过原始方法
+                        return !SearchSoundPatch.TryPlayCustomSound(item); // 播放成功则跳过原始方法
                     }
                     catch (Exception ex)
                     {
@@ -79,18 +77,18 @@ namespace QuickPrice.Patches
             }
 
             /// <summary>
-            /// 播放搜索音效
+            /// 尝试播放自定义搜索音效
             /// </summary>
-            public static void PlaySound(Item item)
+            public static bool TryPlayCustomSound(Item item)
             {
-                if (item == null) return;
+                if (item == null)
+                    return false;
 
                 // 获取物品价格等级
                 int priceLevel = GetItemPriceLevel(item);
 
-                // 播放对应音效
-                var soundType = GetSoundTypeByPriceLevel(priceLevel);
-                Singleton<GUISounds>.Instance.PlayUISound(soundType);
+                // 仅在存在自定义音效时播放；否则交给原版逻辑
+                return SearchSoundCustomAudio.TryPlayCustomSound(priceLevel);
             }
 
             /// <summary>

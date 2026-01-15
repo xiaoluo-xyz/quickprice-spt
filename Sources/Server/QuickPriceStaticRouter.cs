@@ -1148,7 +1148,31 @@ namespace QuickPrice.Server
             public double PriceRoubles { get; set; }
         }
 
+        private const int TraderBuybackCacheBuildRetryCount = 3;
+        private const int TraderBuybackCacheBuildRetryDelayMs = 200;
+
         private static Dictionary<string, TraderBuybackPrice> BuildTraderBuybackPriceCache()
+        {
+            for (int attempt = 1; attempt <= TraderBuybackCacheBuildRetryCount; attempt++)
+            {
+                try
+                {
+                    return BuildTraderBuybackPriceCacheInternal();
+                }
+                catch (InvalidOperationException ex)
+                {
+                    if (attempt >= TraderBuybackCacheBuildRetryCount)
+                        throw;
+
+                    LogWarning($"[QuickPrice] 商人回收价格缓存构建时检测到集合正在修改，{attempt}/{TraderBuybackCacheBuildRetryCount}，稍后重试", ex);
+                    System.Threading.Thread.Sleep(TraderBuybackCacheBuildRetryDelayMs * attempt);
+                }
+            }
+
+            return new Dictionary<string, TraderBuybackPrice>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, TraderBuybackPrice> BuildTraderBuybackPriceCacheInternal()
         {
             var result = new Dictionary<string, TraderBuybackPrice>(StringComparer.OrdinalIgnoreCase);
 
@@ -1171,8 +1195,26 @@ namespace QuickPrice.Server
                 return result;
             }
 
+            var traderSnapshot = tables.Traders.ToList();
+            if (traderSnapshot.Count == 0)
+            {
+                return result;
+            }
+
+            var handbookSnapshot = tables.Templates.Handbook.Items.ToList();
+            if (handbookSnapshot.Count == 0)
+            {
+                return result;
+            }
+
+            var templateSnapshot = new Dictionary<MongoId, TemplateItem>(tables.Templates.Items);
+            if (templateSnapshot.Count == 0)
+            {
+                return result;
+            }
+
             var handbookPrices = new Dictionary<MongoId, double>();
-            foreach (var handbookItem in tables.Templates.Handbook.Items)
+            foreach (var handbookItem in handbookSnapshot)
             {
                 var price = handbookItem.Price.GetValueOrDefault();
                 if (price <= 0)
@@ -1186,7 +1228,7 @@ namespace QuickPrice.Server
                 return result;
             }
 
-            foreach (var traderEntry in tables.Traders)
+            foreach (var traderEntry in traderSnapshot)
             {
                 var traderId = traderEntry.Key;
                 var trader = traderEntry.Value;
@@ -1210,7 +1252,7 @@ namespace QuickPrice.Server
                 foreach (var priceEntry in handbookPrices)
                 {
                     var itemTpl = priceEntry.Key;
-                    if (!CanTraderBuyItem(itemTpl, buyCategories, buyIdList, tables.Templates.Items, baseClassCache))
+                    if (!CanTraderBuyItem(itemTpl, buyCategories, buyIdList, templateSnapshot, baseClassCache))
                         continue;
 
                     var priceRoubles = Math.Round(priceEntry.Value * percent / 100d, 0);

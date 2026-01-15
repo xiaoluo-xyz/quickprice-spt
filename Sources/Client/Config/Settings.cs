@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
+using BepInEx.Bootstrap;
 using BepInEx.Configuration;
+using BepInEx.ConfigurationManager;
 using UnityEngine;
 using QuickPrice.Logging;
 using QuickPrice.Models;
@@ -56,12 +58,14 @@ namespace QuickPrice.Config
         public static ConfigEntry<bool> ShowWeaponModsPrice;
         public static ConfigEntry<bool> ShowDetailedWeaponMods;
         public static ConfigEntry<bool> ShowBestPriceInBold;
+        public static ConfigEntry<bool> UseKUnit;
         public static ConfigEntry<int> StackCountUnitPriceThreshold;
 
         // ===== 3. 提示与交互 =====
         public static ConfigEntry<bool> RequireCtrlKey;
         public static ConfigEntry<float> TooltipDelay;
         public static ConfigEntry<bool> DisableTooltipWidthLimit;
+        public static ConfigEntry<bool> ShowTooltipSeparator;
 
         // ===== 4. 颜色与显示 =====
         public static ConfigEntry<bool> EnableColorCoding;
@@ -135,6 +139,8 @@ namespace QuickPrice.Config
         private static ConfigFile _configFile; // 保存 ConfigFile 引用用于重置
         private static bool _serverOverrideEnabled;
         private static ServerClientConfig _serverConfig;
+        private static bool _isApplyingOverrideValues;
+        private static Type _configManagerType;
 
         // 缓存模式枚举
         public enum CacheMode
@@ -217,6 +223,17 @@ namespace QuickPrice.Config
                 LegacySectionDisplay
             );
 
+            UseKUnit = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
+                "启用K单位显示",
+                false,
+                "价格 ≥ 10,000 时显示为 ₽10k / ₽10.5k\n" +
+                "价格 < 10,000 保持默认格式\n" +
+                "自动四舍五入到 1 位小数，去掉多余的 .0",
+                LegacySectionDisplay
+            );
+
             StackCountUnitPriceThreshold = BindWithLegacy(
                 config,
                 SectionPriceDisplay,
@@ -259,6 +276,15 @@ namespace QuickPrice.Config
                 true,
                 "取消物品提示框的固定宽度限制，避免长文本自动换行\n" +
                 "⚠️ 可能导致提示框超出屏幕边界",
+                LegacySectionMain
+            );
+
+            ShowTooltipSeparator = BindWithLegacy(
+                config,
+                SectionInteraction,
+                "显示提示框下划线",
+                true,
+                "在物品名称下方显示提示框分隔线（下划线）",
                 LegacySectionMain
             );
 
@@ -882,30 +908,41 @@ namespace QuickPrice.Config
             if (serverConfig == null)
                 return;
 
-            RunWithoutSaving(() =>
+            if (_isApplyingOverrideValues)
+                return;
+
+            _isApplyingOverrideValues = true;
+            try
             {
-                PriceThreshold1.Value = serverConfig.PriceThreshold1;
-                PriceThreshold2.Value = serverConfig.PriceThreshold2;
-                PriceThreshold3.Value = serverConfig.PriceThreshold3;
-                PriceThreshold4.Value = serverConfig.PriceThreshold4;
-                PriceThreshold5.Value = serverConfig.PriceThreshold5;
+                RunWithoutSaving(() =>
+                {
+                    PriceThreshold1.Value = serverConfig.PriceThreshold1;
+                    PriceThreshold2.Value = serverConfig.PriceThreshold2;
+                    PriceThreshold3.Value = serverConfig.PriceThreshold3;
+                    PriceThreshold4.Value = serverConfig.PriceThreshold4;
+                    PriceThreshold5.Value = serverConfig.PriceThreshold5;
 
-                PenetrationThreshold1.Value = serverConfig.PenetrationThreshold1;
-                PenetrationThreshold2.Value = serverConfig.PenetrationThreshold2;
-                PenetrationThreshold3.Value = serverConfig.PenetrationThreshold3;
-                PenetrationThreshold4.Value = serverConfig.PenetrationThreshold4;
-                PenetrationThreshold5.Value = serverConfig.PenetrationThreshold5;
+                    PenetrationThreshold1.Value = serverConfig.PenetrationThreshold1;
+                    PenetrationThreshold2.Value = serverConfig.PenetrationThreshold2;
+                    PenetrationThreshold3.Value = serverConfig.PenetrationThreshold3;
+                    PenetrationThreshold4.Value = serverConfig.PenetrationThreshold4;
+                    PenetrationThreshold5.Value = serverConfig.PenetrationThreshold5;
 
-                EnableSearchTimeAdjustment.Value = serverConfig.EnableSearchTimeAdjustment;
-                SearchTimeRandomMin.Value = serverConfig.SearchTimeRandomMin;
-                SearchTimeRandomMax.Value = serverConfig.SearchTimeRandomMax;
-                SearchTimeLevel1.Value = serverConfig.SearchTimeLevel1;
-                SearchTimeLevel2.Value = serverConfig.SearchTimeLevel2;
-                SearchTimeLevel3.Value = serverConfig.SearchTimeLevel3;
-                SearchTimeLevel4.Value = serverConfig.SearchTimeLevel4;
-                SearchTimeLevel5.Value = serverConfig.SearchTimeLevel5;
-                SearchTimeLevel6.Value = serverConfig.SearchTimeLevel6;
-            });
+                    EnableSearchTimeAdjustment.Value = serverConfig.EnableSearchTimeAdjustment;
+                    SearchTimeRandomMin.Value = serverConfig.SearchTimeRandomMin;
+                    SearchTimeRandomMax.Value = serverConfig.SearchTimeRandomMax;
+                    SearchTimeLevel1.Value = serverConfig.SearchTimeLevel1;
+                    SearchTimeLevel2.Value = serverConfig.SearchTimeLevel2;
+                    SearchTimeLevel3.Value = serverConfig.SearchTimeLevel3;
+                    SearchTimeLevel4.Value = serverConfig.SearchTimeLevel4;
+                    SearchTimeLevel5.Value = serverConfig.SearchTimeLevel5;
+                    SearchTimeLevel6.Value = serverConfig.SearchTimeLevel6;
+                });
+            }
+            finally
+            {
+                _isApplyingOverrideValues = false;
+            }
         }
 
         private static void RestoreLocalOverrideValues()
@@ -913,13 +950,24 @@ namespace QuickPrice.Config
             if (OverrideLocalValues.Count == 0)
                 return;
 
-            RunWithoutSaving(() =>
+            if (_isApplyingOverrideValues)
+                return;
+
+            _isApplyingOverrideValues = true;
+            try
             {
-                foreach (var entry in OverrideLocalValues)
+                RunWithoutSaving(() =>
                 {
-                    entry.Key.BoxedValue = entry.Value;
-                }
-            });
+                    foreach (var entry in OverrideLocalValues)
+                    {
+                        entry.Key.BoxedValue = entry.Value;
+                    }
+                });
+            }
+            finally
+            {
+                _isApplyingOverrideValues = false;
+            }
 
             OverrideLocalValues.Clear();
         }
@@ -927,6 +975,108 @@ namespace QuickPrice.Config
         private static void SetOverrideReadOnly(bool readOnly)
         {
             ServerOverrideAttributes.ReadOnly = readOnly;
+            UpdateOverrideEntryHandlers(readOnly);
+            RefreshConfigManagerUi();
+        }
+
+        private static void UpdateOverrideEntryHandlers(bool readOnly)
+        {
+            if (_configFile == null)
+                return;
+
+            _configFile.SettingChanged -= OnConfigSettingChanged;
+            if (readOnly)
+            {
+                _configFile.SettingChanged += OnConfigSettingChanged;
+            }
+        }
+
+        private static void OnConfigSettingChanged(object sender, SettingChangedEventArgs args)
+        {
+            if (args?.ChangedSetting == null)
+                return;
+
+            if (!OverrideEntries.Contains(args.ChangedSetting))
+                return;
+
+            OnOverrideEntrySettingChanged(sender, EventArgs.Empty);
+        }
+
+        private static void OnOverrideEntrySettingChanged(object sender, EventArgs args)
+        {
+            if (_isApplyingOverrideValues || !_serverOverrideEnabled || _serverConfig == null)
+                return;
+
+            ApplyOverrideValues(_serverConfig);
+        }
+
+        private static void RefreshConfigManagerUi()
+        {
+            try
+            {
+                if (Chainloader.ManagerObject == null)
+                    return;
+
+                var configManagerType = ResolveConfigManagerType();
+                if (configManagerType == null)
+                    return;
+
+                var instance = Chainloader.ManagerObject.GetComponent(configManagerType);
+                if (instance == null)
+                    return;
+
+                // ConfigManager caches read-only state; rebuild the list when override toggles.
+                var method = GetRefreshMethod(configManagerType);
+                method?.Invoke(instance, null);
+            }
+            catch (Exception ex)
+            {
+                ClientLog.Debug($"ConfigManager UI refresh failed: {ex.Message}");
+            }
+        }
+
+        private static MethodInfo GetRefreshMethod(Type configManagerType)
+        {
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var method = configManagerType.GetMethod("BuildSettingList", flags);
+            if (method != null && method.GetParameters().Length == 0)
+                return method;
+
+            method = configManagerType.GetMethod("RebuildSettingList", flags);
+            if (method != null && method.GetParameters().Length == 0)
+                return method;
+
+            method = configManagerType.GetMethod("ReloadSettings", flags);
+            if (method != null && method.GetParameters().Length == 0)
+                return method;
+
+            method = configManagerType.GetMethod("UpdateSettingList", flags);
+            if (method != null && method.GetParameters().Length == 0)
+                return method;
+
+            return null;
+        }
+
+        private static Type ResolveConfigManagerType()
+        {
+            if (_configManagerType != null)
+                return _configManagerType;
+
+            _configManagerType = Type.GetType("BepInEx.ConfigurationManager.ConfigurationManager, ConfigurationManager");
+            if (_configManagerType != null)
+                return _configManagerType;
+
+            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            {
+                var type = assembly.GetType("BepInEx.ConfigurationManager.ConfigurationManager", false);
+                if (type != null)
+                {
+                    _configManagerType = type;
+                    break;
+                }
+            }
+
+            return _configManagerType;
         }
 
         private static ConfigEntry<T> BindWithLegacy<T>(

@@ -29,7 +29,8 @@ namespace QuickPrice.Patches
     {
         public bool Enabled;
         public TextMeshProUGUI Label;
-        public Image Separator;
+        public readonly System.Collections.Generic.List<Image> Separators = new System.Collections.Generic.List<Image>();
+        public readonly System.Collections.Generic.List<int> SeparatorLineIndexes = new System.Collections.Generic.List<int>();
     }
 
     /// <summary>
@@ -39,8 +40,10 @@ namespace QuickPrice.Patches
     public class PriceTooltipPatch : ModulePatch
     {
         private const float TooltipSeparatorThickness = 1f;
-        private const float TooltipSeparatorAlpha = 0.94f;
+        private const float TooltipSeparatorAlpha = 0.8f;
         private const float TooltipSeparatorCenterFactor = 0.45f;
+        private const string TooltipSeparatorToken = "QPSEP";
+        private const string TooltipSeparatorMarker = "<color=#00000000>" + TooltipSeparatorToken + "</color>";
         private static readonly FieldInfo SimpleTooltipLabelField = AccessTools.Field(typeof(SimpleTooltip), "_label");
 
         protected override MethodBase GetTargetMethod()
@@ -163,10 +166,16 @@ namespace QuickPrice.Patches
 
                 if (!string.IsNullOrEmpty(priceText))
                 {
-                    text = InsertBlankLineAfterTitle(text);
+                    if (Settings.ShowTooltipSeparator.Value)
+                    {
+                        text = InsertSeparatorMarkerAfterTitle(text);
+                    }
                     priceText = EnsureLeadingNewline(priceText);
                     text += priceText;
-                    SetSeparatorEnabled(__instance, true);
+                    if (Settings.ShowTooltipSeparator.Value)
+                    {
+                        SetSeparatorEnabled(__instance, true);
+                    }
                 }
 
                 // 设置延迟
@@ -224,20 +233,48 @@ namespace QuickPrice.Patches
             return ShouldUseUnitPriceOnly(stackCount) ? 1 : stackCount;
         }
 
-        private static string InsertBlankLineAfterTitle(string text)
+        private static string InsertSeparatorMarkerAfterTitle(string text)
         {
             if (string.IsNullOrEmpty(text))
                 return text;
 
             int firstLineEnd = text.IndexOf('\n');
             if (firstLineEnd < 0)
-                return text + "\n";
+                return text + "\n" + TooltipSeparatorMarker;
 
-            int blankLineIndex = firstLineEnd + 1;
-            if (blankLineIndex < text.Length && text[blankLineIndex] == '\n')
+            int insertIndex = firstLineEnd + 1;
+            if (insertIndex >= text.Length)
+                return text + TooltipSeparatorMarker;
+
+            if (text.IndexOf(TooltipSeparatorMarker, insertIndex, StringComparison.Ordinal) == insertIndex)
                 return text;
 
-            return text.Insert(blankLineIndex, "\n");
+            if (text[insertIndex] == '\n')
+                return text.Insert(insertIndex, TooltipSeparatorMarker);
+
+            return text.Insert(insertIndex, TooltipSeparatorMarker + "\n");
+        }
+
+        private static void AppendTooltipSeparator(StringBuilder sb)
+        {
+            if (sb == null || !Settings.ShowTooltipSeparator.Value)
+                return;
+
+            if (sb.Length == 0)
+            {
+                sb.Append(TooltipSeparatorMarker);
+                return;
+            }
+
+            if (sb[sb.Length - 1] == '\n')
+            {
+                sb.Append('\n');
+            }
+            else
+            {
+                sb.Append("\n\n");
+            }
+            sb.Append(TooltipSeparatorMarker);
         }
 
         private static string EnsureLeadingNewline(string value)
@@ -263,6 +300,11 @@ namespace QuickPrice.Patches
             }
 
             state.Enabled = enabled;
+            if (!enabled)
+            {
+                state.SeparatorLineIndexes.Clear();
+                HideSeparators(state);
+            }
         }
 
         private static void UpdateTooltipSeparator(SimpleTooltip tooltip)
@@ -273,53 +315,146 @@ namespace QuickPrice.Patches
             var state = tooltip.gameObject.GetComponent<TooltipSeparatorState>();
             if (state == null || !state.Enabled)
             {
-                if (state?.Separator != null)
-                {
-                    state.Separator.gameObject.SetActive(false);
-                }
+                HideSeparators(state);
                 return;
             }
 
             var label = state.Label ?? GetTooltipLabel(tooltip);
             if (label == null)
             {
-                if (state.Separator != null)
-                {
-                    state.Separator.gameObject.SetActive(false);
-                }
+                HideSeparators(state);
                 return;
             }
 
             state.Label = label;
-            var separator = state.Separator ?? CreateSeparatorImage(label);
-            state.Separator = separator;
 
             label.ForceMeshUpdate();
-            if (label.textInfo == null || label.textInfo.lineCount < 3)
+            if (label.textInfo == null || label.textInfo.lineCount == 0)
             {
-                separator.gameObject.SetActive(false);
+                HideSeparators(state);
                 return;
             }
 
-            var spacerLine = label.textInfo.lineInfo[1];
-            float blankTop = spacerLine.lineExtents.max.y;
-            float blankBottom = spacerLine.lineExtents.min.y;
-            float blankHeight = blankTop - blankBottom;
-            if (blankHeight <= 0f)
+            var separatorLines = state.SeparatorLineIndexes;
+            separatorLines.Clear();
+            CollectSeparatorLines(label.textInfo, separatorLines);
+
+            if (separatorLines.Count == 0)
             {
-                blankHeight = label.fontSize;
-                blankBottom = blankTop - blankHeight;
+                HideSeparators(state);
+                return;
             }
 
-            float targetCenter = blankTop - blankHeight * TooltipSeparatorCenterFactor;
-
-            var rectTransform = separator.rectTransform;
-            rectTransform.anchoredPosition = new Vector2(0f, targetCenter + TooltipSeparatorThickness * 0.5f);
-            rectTransform.sizeDelta = new Vector2(0f, TooltipSeparatorThickness);
+            EnsureSeparatorImages(state, separatorLines.Count);
 
             var textColor = label.color;
-            separator.color = new Color(textColor.r, textColor.g, textColor.b, TooltipSeparatorAlpha);
-            separator.gameObject.SetActive(true);
+            for (int i = 0; i < separatorLines.Count; i++)
+            {
+                int lineIndex = separatorLines[i];
+                int targetLineIndex = ResolveSeparatorLineIndex(label.textInfo, lineIndex);
+                var separator = state.Separators[i];
+
+                if (targetLineIndex < 0 || targetLineIndex >= label.textInfo.lineCount)
+                {
+                    separator.gameObject.SetActive(false);
+                    continue;
+                }
+
+                var spacerLine = label.textInfo.lineInfo[targetLineIndex];
+                float blankTop = spacerLine.lineExtents.max.y;
+                float blankBottom = spacerLine.lineExtents.min.y;
+                float blankHeight = blankTop - blankBottom;
+                if (blankHeight <= 0f)
+                {
+                    blankHeight = label.fontSize;
+                    blankBottom = blankTop - blankHeight;
+                }
+
+                float targetCenter = blankTop - blankHeight * TooltipSeparatorCenterFactor;
+
+                var rectTransform = separator.rectTransform;
+                rectTransform.anchoredPosition = new Vector2(0f, targetCenter + TooltipSeparatorThickness * 0.5f);
+                rectTransform.sizeDelta = new Vector2(0f, TooltipSeparatorThickness);
+
+                separator.color = new Color(textColor.r, textColor.g, textColor.b, TooltipSeparatorAlpha);
+                separator.gameObject.SetActive(true);
+            }
+
+            for (int i = separatorLines.Count; i < state.Separators.Count; i++)
+            {
+                state.Separators[i].gameObject.SetActive(false);
+            }
+        }
+
+        private static int ResolveSeparatorLineIndex(TMP_TextInfo textInfo, int markerLineIndex)
+        {
+            if (textInfo == null)
+                return markerLineIndex;
+
+            if (markerLineIndex > 0 && textInfo.lineInfo[markerLineIndex - 1].characterCount == 0)
+                return markerLineIndex - 1;
+
+            if (markerLineIndex + 1 < textInfo.lineCount && textInfo.lineInfo[markerLineIndex + 1].characterCount == 0)
+                return markerLineIndex + 1;
+
+            return markerLineIndex;
+        }
+
+        private static void CollectSeparatorLines(TMP_TextInfo textInfo, System.Collections.Generic.List<int> lineIndexes)
+        {
+            if (textInfo == null || lineIndexes == null)
+                return;
+
+            int tokenLength = TooltipSeparatorToken.Length;
+            for (int lineIndex = 0; lineIndex < textInfo.lineCount; lineIndex++)
+            {
+                var lineInfo = textInfo.lineInfo[lineIndex];
+                if (lineInfo.characterCount != tokenLength)
+                    continue;
+
+                int start = lineInfo.firstCharacterIndex;
+                bool match = true;
+                for (int i = 0; i < tokenLength; i++)
+                {
+                    if (textInfo.characterInfo[start + i].character != TooltipSeparatorToken[i])
+                    {
+                        match = false;
+                        break;
+                    }
+                }
+
+                if (match)
+                {
+                    lineIndexes.Add(lineIndex);
+                }
+            }
+        }
+
+        private static void EnsureSeparatorImages(TooltipSeparatorState state, int count)
+        {
+            if (state == null || state.Label == null)
+                return;
+
+            while (state.Separators.Count < count)
+            {
+                var separator = CreateSeparatorImage(state.Label);
+                state.Separators.Add(separator);
+            }
+        }
+
+        private static void HideSeparators(TooltipSeparatorState state)
+        {
+            if (state?.Separators == null)
+                return;
+
+            for (int i = 0; i < state.Separators.Count; i++)
+            {
+                var separator = state.Separators[i];
+                if (separator != null)
+                {
+                    separator.gameObject.SetActive(false);
+                }
+            }
         }
 
         private static TextMeshProUGUI GetTooltipLabel(SimpleTooltip tooltip)
@@ -702,7 +837,7 @@ namespace QuickPrice.Patches
                 var modsList = PriceCalculator.CollectWeaponModsInfo(weapon);
                 if (modsList != null && modsList.Count > 0)
                 {
-                    sb.Append("\n━━━━━━━━━━━━━━━━");
+                    AppendTooltipSeparator(sb);
                     sb.Append("\n配件详情:");
 
                     foreach (var mod in modsList)
@@ -732,7 +867,7 @@ namespace QuickPrice.Patches
                             sb.Append($"\n | {indent}{prefix}{mod.Name} {priceStr}");
                         }
                     }
-                    sb.Append("\n━━━━━━━━━━━━━━━━");
+                    AppendTooltipSeparator(sb);
                 }
             }
 
@@ -757,12 +892,20 @@ namespace QuickPrice.Patches
                 if (traderPrice != null)
                 {
                     // 显示商人回收信息
-                    string traderText = $"商人回收: {traderPrice.TraderName} {traderPrice.CurrencySymbol}{traderPrice.Amount:N0}";
+                    string traderText;
+                    if (traderPrice.CurrencySymbol == "₽")
+                    {
+                        traderText = $"商人回收: {traderPrice.TraderName} {TextFormatting.FormatPrice(traderPrice.Amount)}";
+                    }
+                    else
+                    {
+                        traderText = $"商人回收: {traderPrice.TraderName} {traderPrice.CurrencySymbol}{traderPrice.Amount:N0}";
+                    }
 
                     // 如果不是卢布，显示转换后的价格
                     if (traderPrice.CurrencySymbol != "₽")
                     {
-                        traderText += $" (₽{traderPrice.PriceInRoubles:N0})";
+                        traderText += $" ({TextFormatting.FormatPrice(traderPrice.PriceInRoubles)})";
                     }
 
                     // 应用颜色编码
@@ -1149,10 +1292,10 @@ namespace QuickPrice.Patches
                 {
                     sb.Append($"\n子弹型号: {firstAmmo.LocalizedName()}");
 
-                    // 穿甲等级（着色）
+                    // 穿透力（着色）
                     if (firstAmmo.PenetrationPower > 0)
                     {
-                        string penetrationText = $"穿甲等级: {firstAmmo.PenetrationPower}";
+                        string penetrationText = $"穿透力: {firstAmmo.PenetrationPower}";
                         if (Settings.EnableColorCoding.Value && Settings.UseCaliberPenetrationPower.Value)
                         {
                             penetrationText = AmmoColorCoding.ApplyPenetrationColor(penetrationText, firstAmmo.PenetrationPower);
@@ -1166,10 +1309,10 @@ namespace QuickPrice.Patches
                         sb.Append($"\n口径: {firstAmmo.Caliber}");
                     }
 
-                    // 伤害
+                    // 威力
                     if (firstAmmo.Damage > 0)
                     {
-                        sb.Append($"\n伤害: {firstAmmo.Damage}");
+                        sb.Append($"\n威力: {firstAmmo.Damage}");
                     }
 
                     // 单发价格
@@ -1241,7 +1384,7 @@ namespace QuickPrice.Patches
             int totalAmmoForPenetration = 0;
 
             // 保存每种子弹的详细信息（用于显示）
-            var ammoDetails = new System.Collections.Generic.List<(string name, int penetration, int count, double price)>();
+            var ammoDetails = new System.Collections.Generic.List<(string name, int penetration, double damage, int count, double price)>();
 
             // Plugin.Log.LogInfo($"  - 弹匣内子弹总数: {ammoCount}");
 
@@ -1270,6 +1413,7 @@ namespace QuickPrice.Patches
                             ammoDetails.Add((
                                 ammoItem.LocalizedName(),
                                 ammoItem.PenetrationPower,
+                                ammoItem.Damage,
                                 stackCount,
                                 itemTotalPrice
                             ));
@@ -1352,13 +1496,14 @@ namespace QuickPrice.Patches
                 sb.Append($"\n子弹价值: {TextFormatting.FormatPrice(ammosPrice)}");
 
                 // 显示子弹详情（参考配件展示格式）
-                sb.Append("\n━━━━━━━━━━━━━━━━");
+                AppendTooltipSeparator(sb);
                 sb.Append("\n子弹详情:");
 
                 // 逐个显示每种子弹的详细信息
                 foreach (var detail in ammoDetails)
                 {
-                    string ammoLine = $"{detail.name} 穿甲{detail.penetration} x{detail.count} {TextFormatting.FormatPrice(detail.price)}";
+                    string damageText = detail.damage > 0 ? $" 威力{detail.damage}" : "";
+                    string ammoLine = $"{detail.name} 穿透力{detail.penetration}{damageText} x{detail.count} {TextFormatting.FormatPrice(detail.price)}";
 
                     // 按穿甲等级着色（如果启用）
                     if (Settings.UseCaliberPenetrationPower.Value && Settings.EnableColorCoding.Value)
@@ -1368,7 +1513,7 @@ namespace QuickPrice.Patches
 
                     sb.Append($"\n | {ammoLine}");  // 使用 | 前缀统一格式
                 }
-                sb.Append("\n━━━━━━━━━━━━━━━━");
+                AppendTooltipSeparator(sb);
             }
 
             // 显示单格价值
@@ -1443,10 +1588,16 @@ namespace QuickPrice.Patches
                 sb.Append($"\n单价: {TextFormatting.FormatPrice(price.Value)}");
             }
 
-            // 显示穿甲值
+            // 显示穿透力
             if (ammoItem.PenetrationPower > 0)
             {
-                sb.Append($"\n穿甲: {ammoItem.PenetrationPower}");
+                sb.Append($"\n穿透力: {ammoItem.PenetrationPower}");
+            }
+
+            // 显示威力
+            if (ammoItem.Damage > 0)
+            {
+                sb.Append($"\n威力: {ammoItem.Damage}");
             }
 
             // Plugin.Log.LogDebug($"✅ 子弹: {ammoItem.LocalizedName()} = {totalPrice:N0}₽ (穿甲{ammoItem.PenetrationPower})");
@@ -1712,7 +1863,7 @@ namespace QuickPrice.Patches
 
                     if (modsList.Count > 0)
                     {
-                        sb.Append("\n━━━━━━━━━━━━━━━━");
+                        AppendTooltipSeparator(sb);
                         sb.Append("\n子配件详情:");
 
                         foreach (var modInfo in modsList)
@@ -1733,7 +1884,7 @@ namespace QuickPrice.Patches
                                 sb.Append($"\n | {indent}{prefix}{modInfo.Name} {priceStr}");
                             }
                         }
-                        sb.Append("\n━━━━━━━━━━━━━━━━");
+                        AppendTooltipSeparator(sb);
                     }
                 }
             }

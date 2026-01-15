@@ -1,4 +1,6 @@
 using System;
+using System.Globalization;
+using QuickPrice.Config;
 
 namespace QuickPrice.Utils
 {
@@ -12,7 +14,12 @@ namespace QuickPrice.Utils
         /// </summary>
         public static string FormatPrice(double price)
         {
-            return $"₽{price:#,0}";
+            if (Settings.UseKUnit != null && Settings.UseKUnit.Value)
+            {
+                return FormatPriceKUnit(price);
+            }
+
+            return FormatPriceDefault(price);
         }
 
         /// <summary>
@@ -25,6 +32,23 @@ namespace QuickPrice.Utils
             if (price >= 1000)
                 return $"₽{price / 1000:0.#}k";
             return $"₽{price:0}";
+        }
+
+        private static string FormatPriceDefault(double price)
+        {
+            return $"₽{price:#,0}";
+        }
+
+        private static string FormatPriceKUnit(double price)
+        {
+            if (price < 10000)
+            {
+                return FormatPriceDefault(price);
+            }
+
+            double value = price / 1000d;
+            string formatted = value.ToString("0.#", CultureInfo.InvariantCulture);
+            return $"₽{formatted}k";
         }
 
         /// <summary>

@@ -9,6 +9,7 @@ using QuickPrice.Logging;
 using QuickPrice.Patches;
 using QuickPrice.Services;
 using QuickPrice.Extensions;
+using QuickPrice.Utils;
 using EFT.Communications;
 using HarmonyLib;
 
@@ -44,6 +45,9 @@ namespace QuickPrice
                 // 初始化配置
                 Settings.Init(Config);
                 // Log.LogInfo("✅ 中文配置系统初始化成功");
+
+                // 预加载搜索音效（仅 .mp3）
+                SearchSoundCustomAudio.PreloadAll();
 
                 // 启动异步获取服务端配置（不阻塞游戏启动）
                 _ = InitializeServerConfigAsync();
@@ -318,6 +322,10 @@ namespace QuickPrice
                 // 注册价格显示补丁
                 new PriceTooltipPatch().Enable();
                 // Log.LogInfo("✅ 价格显示补丁已启用");
+
+                // 注册撤离结算文本注入测试补丁
+                new SessionResultExitStatusPatch().Enable();
+                // Log.LogInfo("✅ 结算文本注入测试补丁已启用");
 
                 // 注册自定义颜色转换补丁（必须在背景色补丁之前启用）
                 new CustomColorConverterPatch().Enable();

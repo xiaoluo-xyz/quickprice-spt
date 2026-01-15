@@ -373,7 +373,8 @@ namespace QuickPrice.Patches
                     // 价格信息（如果启用）
                     if (Settings.ShowGroundItemPrice.Value)
                     {
-                        priceInfo = $" <color=#B0B0B0>({price.Value:N0}₽ | 穿甲{ammo.PenetrationPower})</color>";
+                        string damageText = ammo.Damage > 0 ? $" | 威力{ammo.Damage}" : "";
+                        priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)} | 穿透力{ammo.PenetrationPower}{damageText})</color>";
                     }
                 }
                 // 2. 子弹盒/弹匣：显示详细信息
@@ -392,7 +393,7 @@ namespace QuickPrice.Patches
                         // 价格信息（如果启用）
                         if (Settings.ShowGroundItemPrice.Value)
                         {
-                            priceInfo = $" <color=#B0B0B0>({price.Value:N0}₽ | {armorClass.Value}级)</color>";
+                            priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)} | {armorClass.Value}级)</color>";
                         }
                     }
                     else
@@ -404,7 +405,7 @@ namespace QuickPrice.Patches
 
                         if (Settings.ShowGroundItemPrice.Value)
                         {
-                            priceInfo = $" <color=#B0B0B0>({price.Value:N0}₽)</color>";
+                            priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)})</color>";
                         }
                     }
                 }
@@ -418,7 +419,7 @@ namespace QuickPrice.Patches
                     // 价格信息（如果启用）
                     if (Settings.ShowGroundItemPrice.Value)
                     {
-                        priceInfo = $" <color=#B0B0B0>({price.Value:N0}₽)</color>";
+                        priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)})</color>";
                     }
                 }
 
@@ -473,7 +474,8 @@ namespace QuickPrice.Patches
                         if (Settings.ShowGroundItemPrice.Value)
                         {
                             string caliber = firstAmmo.Caliber ?? "未知口径";
-                            priceInfo = $" <color=#B0B0B0>({totalPrice:N0}₽ | 穿甲{firstAmmo.PenetrationPower} | {caliber})</color>";
+                            string damageText = firstAmmo.Damage > 0 ? $" | 威力{firstAmmo.Damage}" : "";
+                            priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(totalPrice)} | 穿透力{firstAmmo.PenetrationPower}{damageText} | {caliber})</color>";
                         }
 
                         return coloredText;
@@ -487,7 +489,7 @@ namespace QuickPrice.Patches
 
                 if (Settings.ShowGroundItemPrice.Value)
                 {
-                    priceInfo = $" <color=#B0B0B0>({totalPrice:N0}₽)</color>";
+                    priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(totalPrice)})</color>";
                 }
 
                 return PriceColorCoding.ApplyColor(originalText, pricePerSlot);
@@ -503,7 +505,7 @@ namespace QuickPrice.Patches
 
                 if (Settings.ShowGroundItemPrice.Value)
                 {
-                    priceInfo = $" <color=#B0B0B0>({totalPrice:N0}₽)</color>";
+                    priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(totalPrice)})</color>";
                 }
 
                 return PriceColorCoding.ApplyColor(originalText, pricePerSlot);

@@ -1,4 +1,4 @@
-namespace QuickPrice.Config
+namespace BepInEx.ConfigurationManager
 {
     internal class ConfigurationManagerAttributes
     {
