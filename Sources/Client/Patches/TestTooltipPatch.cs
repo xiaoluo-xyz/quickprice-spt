@@ -10,6 +10,9 @@ using QuickPrice.Config;
 using QuickPrice.Logging;
 using QuickPrice.Services;
 using QuickPrice.Utils;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
 
 namespace QuickPrice.Patches
 {
@@ -22,12 +25,24 @@ namespace QuickPrice.Patches
         public bool WasLimited { get; set; } = false;
     }
 
+    internal class TooltipSeparatorState : MonoBehaviour
+    {
+        public bool Enabled;
+        public TextMeshProUGUI Label;
+        public Image Separator;
+    }
+
     /// <summary>
     /// 价格显示补丁 - 拦截 SimpleTooltip.Show() 方法
     /// 在物品 tooltip 后面添加价格信息
     /// </summary>
     public class PriceTooltipPatch : ModulePatch
     {
+        private const float TooltipSeparatorThickness = 1f;
+        private const float TooltipSeparatorAlpha = 0.94f;
+        private const float TooltipSeparatorCenterFactor = 0.45f;
+        private static readonly FieldInfo SimpleTooltipLabelField = AccessTools.Field(typeof(SimpleTooltip), "_label");
+
         protected override MethodBase GetTargetMethod()
         {
             // 查找 SimpleTooltip.Show() 方法
@@ -39,8 +54,10 @@ namespace QuickPrice.Patches
         }
 
         [PatchPrefix]
-        public static void Prefix(SimpleTooltip __instance, ref string text, ref float delay)
+        public static void Prefix(SimpleTooltip __instance, ref string text, ref float delay, ref float? maxWidth)
         {
+            SetSeparatorEnabled(__instance, false);
+
             // 检查插件是否启用
             if (!Settings.PluginEnabled.Value)
                 return;
@@ -63,6 +80,11 @@ namespace QuickPrice.Patches
                     return;
                 }
 
+                if (!IsTooltipForItem(text, item))
+                {
+                    return;
+                }
+
                 // 获取物品占用格数
                 int slots = item.Width * item.Height;
 
@@ -75,17 +97,19 @@ namespace QuickPrice.Patches
                 // 按类型处理（注意顺序：子类判断必须在父类之前）
                 // Plugin.Log.LogInfo($"🔍 开始类型判断: {item.LocalizedName()} (类型: {item.GetType().Name})");
 
+                string priceText = null;
+
                 // 武器
                 if (item is Weapon weapon)
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为武器");
-                    text += FormatWeaponPriceText(weapon, slots);
+                    priceText = FormatWeaponPriceText(weapon, slots);
                 }
                 // 弹匣（必须在 Mod 之前，因为 MagazineItemClass 继承自 Mod）
                 else if (item is MagazineItemClass magazine)
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为弹匣");
-                    text += FormatMagazinePriceText(magazine, slots);
+                    priceText = FormatMagazinePriceText(magazine, slots);
                 }
                 // 弹药盒
                 else if (item is AmmoBox ammoBox)
@@ -94,55 +118,82 @@ namespace QuickPrice.Patches
                     LogAmmoBoxDetails(ammoBox);
 
                     // Plugin.Log.LogInfo($"   ✅ 识别为弹药盒");
-                    text += FormatAmmoBoxPriceText(ammoBox, slots);
+                    priceText = FormatAmmoBoxPriceText(ammoBox, slots);
                 }
                 // 护甲（在子弹之前检查，避免被其他分类覆盖）
                 else if (ArmorHelper.IsArmor(item))
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为护甲");
-                    text += FormatArmorPriceText(item, slots);
+                    priceText = FormatArmorPriceText(item, slots);
                 }
                 // 防弹插板（在配件之前检查）
                 else if (IsArmorPlate(item))
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为防弹插板");
-                    text += FormatArmorPlatePriceText(item, slots);
+                    priceText = FormatArmorPlatePriceText(item, slots);
                 }
                 // 单发子弹
                 else if (item is AmmoItemClass ammoItem)
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为单发子弹");
-                    text += FormatAmmoPriceText(ammoItem, slots);
+                    priceText = FormatAmmoPriceText(ammoItem, slots);
                 }
                 // 配件（必须在 MagazineItemClass 之后）
                 else if (item is Mod mod)
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为配件");
-                    text += FormatModPriceText(mod, slots);
+                    priceText = FormatModPriceText(mod, slots);
                 }
                 // 容器（背包、箱子等）
                 else if (HasContainer(item))
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为容器");
-                    text += FormatContainerPriceText(item, slots);
+                    priceText = FormatContainerPriceText(item, slots);
                 }
                 else if (item.StackObjectsCount > 1)
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为堆叠物品 (x{item.StackObjectsCount})");
-                    text += FormatStackedItemPriceText(item, slots);
+                    priceText = FormatStackedItemPriceText(item, slots);
                 }
                 else
                 {
                     // Plugin.Log.LogInfo($"   ✅ 识别为普通物品");
-                    text += FormatNormalItemPriceText(item, slots);
+                    priceText = FormatNormalItemPriceText(item, slots);
+                }
+
+                if (!string.IsNullOrEmpty(priceText))
+                {
+                    text = InsertBlankLineAfterTitle(text);
+                    priceText = EnsureLeadingNewline(priceText);
+                    text += priceText;
+                    SetSeparatorEnabled(__instance, true);
                 }
 
                 // 设置延迟
                 delay = Settings.TooltipDelay.Value;
+
+                if (Settings.DisableTooltipWidthLimit.Value)
+                {
+                    maxWidth = -1f;
+                }
             }
             catch (System.Exception ex)
             {
                 Plugin.Log.LogError($"❌ 价格显示错误: {ex.Message}");
+                Plugin.Log.LogError(ex.StackTrace);
+            }
+        }
+
+        [PatchPostfix]
+        public static void Postfix(SimpleTooltip __instance)
+        {
+            try
+            {
+                UpdateTooltipSeparator(__instance);
+            }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.LogError($"❌ Tooltip 分隔线更新失败: {ex.Message}");
                 Plugin.Log.LogError(ex.StackTrace);
             }
         }
@@ -154,6 +205,147 @@ namespace QuickPrice.Patches
         {
             return UnityEngine.Input.GetKey(UnityEngine.KeyCode.LeftControl)
                 || UnityEngine.Input.GetKey(UnityEngine.KeyCode.RightControl);
+        }
+
+        private static bool ShouldUseUnitPriceOnly(int stackCount)
+        {
+            int threshold = Settings.StackCountUnitPriceThreshold?.Value ?? 1000;
+            if (threshold < 1)
+                threshold = 1;
+
+            return stackCount > threshold;
+        }
+
+        private static int GetEffectiveStackCount(int stackCount)
+        {
+            if (stackCount <= 0)
+                return 1;
+
+            return ShouldUseUnitPriceOnly(stackCount) ? 1 : stackCount;
+        }
+
+        private static string InsertBlankLineAfterTitle(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return text;
+
+            int firstLineEnd = text.IndexOf('\n');
+            if (firstLineEnd < 0)
+                return text + "\n";
+
+            int blankLineIndex = firstLineEnd + 1;
+            if (blankLineIndex < text.Length && text[blankLineIndex] == '\n')
+                return text;
+
+            return text.Insert(blankLineIndex, "\n");
+        }
+
+        private static string EnsureLeadingNewline(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return value;
+
+            return value[0] == '\n' ? value : "\n" + value;
+        }
+
+        private static void SetSeparatorEnabled(SimpleTooltip tooltip, bool enabled)
+        {
+            if (tooltip == null)
+                return;
+
+            var state = tooltip.gameObject.GetComponent<TooltipSeparatorState>();
+            if (state == null)
+            {
+                if (!enabled)
+                    return;
+
+                state = tooltip.gameObject.AddComponent<TooltipSeparatorState>();
+            }
+
+            state.Enabled = enabled;
+        }
+
+        private static void UpdateTooltipSeparator(SimpleTooltip tooltip)
+        {
+            if (tooltip == null)
+                return;
+
+            var state = tooltip.gameObject.GetComponent<TooltipSeparatorState>();
+            if (state == null || !state.Enabled)
+            {
+                if (state?.Separator != null)
+                {
+                    state.Separator.gameObject.SetActive(false);
+                }
+                return;
+            }
+
+            var label = state.Label ?? GetTooltipLabel(tooltip);
+            if (label == null)
+            {
+                if (state.Separator != null)
+                {
+                    state.Separator.gameObject.SetActive(false);
+                }
+                return;
+            }
+
+            state.Label = label;
+            var separator = state.Separator ?? CreateSeparatorImage(label);
+            state.Separator = separator;
+
+            label.ForceMeshUpdate();
+            if (label.textInfo == null || label.textInfo.lineCount < 3)
+            {
+                separator.gameObject.SetActive(false);
+                return;
+            }
+
+            var spacerLine = label.textInfo.lineInfo[1];
+            float blankTop = spacerLine.lineExtents.max.y;
+            float blankBottom = spacerLine.lineExtents.min.y;
+            float blankHeight = blankTop - blankBottom;
+            if (blankHeight <= 0f)
+            {
+                blankHeight = label.fontSize;
+                blankBottom = blankTop - blankHeight;
+            }
+
+            float targetCenter = blankTop - blankHeight * TooltipSeparatorCenterFactor;
+
+            var rectTransform = separator.rectTransform;
+            rectTransform.anchoredPosition = new Vector2(0f, targetCenter + TooltipSeparatorThickness * 0.5f);
+            rectTransform.sizeDelta = new Vector2(0f, TooltipSeparatorThickness);
+
+            var textColor = label.color;
+            separator.color = new Color(textColor.r, textColor.g, textColor.b, TooltipSeparatorAlpha);
+            separator.gameObject.SetActive(true);
+        }
+
+        private static TextMeshProUGUI GetTooltipLabel(SimpleTooltip tooltip)
+        {
+            if (tooltip == null || SimpleTooltipLabelField == null)
+                return null;
+
+            return SimpleTooltipLabelField.GetValue(tooltip) as TextMeshProUGUI;
+        }
+
+        private static Image CreateSeparatorImage(TextMeshProUGUI label)
+        {
+            var separatorObject = new GameObject("QP_TooltipSeparator", typeof(RectTransform), typeof(Image));
+            separatorObject.transform.SetParent(label.rectTransform, false);
+
+            var rectTransform = (RectTransform)separatorObject.transform;
+            rectTransform.anchorMin = new Vector2(0f, 1f);
+            rectTransform.anchorMax = new Vector2(1f, 1f);
+            rectTransform.pivot = new Vector2(0.5f, 1f);
+            rectTransform.anchoredPosition = Vector2.zero;
+            rectTransform.sizeDelta = new Vector2(0f, TooltipSeparatorThickness);
+
+            var image = separatorObject.GetComponent<Image>();
+            image.raycastTarget = false;
+
+            return image;
         }
 
         /// <summary>
@@ -299,7 +491,8 @@ namespace QuickPrice.Patches
                         var ammoPrice = PriceDataService.Instance.GetPrice(ammo.TemplateId);
                         if (ammoPrice.HasValue)
                         {
-                            double totalPrice = ammoPrice.Value * ammo.StackObjectsCount;
+                            int stackCount = GetEffectiveStackCount(ammo.StackObjectsCount);
+                            double totalPrice = ammoPrice.Value * stackCount;
                             int ammoSlots = ammo.Width * ammo.Height;
                             double pricePerSlot = ammoSlots > 0 ? totalPrice / ammoSlots : totalPrice;
                             coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
@@ -358,7 +551,8 @@ namespace QuickPrice.Patches
                     var price = PriceDataService.Instance.GetPrice(item.TemplateId);
                     if (price.HasValue)
                     {
-                        double totalPrice = price.Value * item.StackObjectsCount;
+                        int stackCount = GetEffectiveStackCount(item.StackObjectsCount);
+                        double totalPrice = price.Value * stackCount;
                         int itemSlots = item.Width * item.Height;
                         double pricePerSlot = itemSlots > 0 ? totalPrice / itemSlots : totalPrice;
                         coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
@@ -374,13 +568,75 @@ namespace QuickPrice.Patches
             }
         }
 
+        private static bool IsTooltipForItem(string text, Item item)
+        {
+            if (string.IsNullOrWhiteSpace(text) || item == null)
+                return false;
+
+            var itemName = item.LocalizedName();
+            if (string.IsNullOrWhiteSpace(itemName))
+                return false;
+
+            var firstLine = ExtractFirstLine(text);
+            var normalizedLine = StripRichTextTags(firstLine).Trim();
+            var normalizedItemName = itemName.Trim();
+
+            if (string.Equals(normalizedLine, normalizedItemName, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (normalizedLine.StartsWith(normalizedItemName, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return false;
+        }
+
+        private static string ExtractFirstLine(string text)
+        {
+            if (string.IsNullOrEmpty(text))
+                return string.Empty;
+
+            int firstLineEnd = text.IndexOf('\n');
+            if (firstLineEnd >= 0)
+                return text.Substring(0, firstLineEnd);
+
+            return text;
+        }
+
+        private static string StripRichTextTags(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            var sb = new StringBuilder(value.Length);
+            bool inTag = false;
+
+            foreach (var ch in value)
+            {
+                if (ch == '<')
+                {
+                    inTag = true;
+                    continue;
+                }
+
+                if (inTag)
+                {
+                    if (ch == '>')
+                        inTag = false;
+                    continue;
+                }
+
+                sb.Append(ch);
+            }
+
+            return sb.ToString();
+        }
+
         /// <summary>
         /// 格式化武器价格文本
         /// </summary>
         private static string FormatWeaponPriceText(Weapon weapon, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取武器本体价格
             var weaponPrice = PriceDataService.Instance.GetPrice(weapon.TemplateId);
@@ -655,7 +911,6 @@ namespace QuickPrice.Patches
         private static string FormatNormalItemPriceText(Item item, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取价格
             var price = PriceDataService.Instance.GetPrice(item.TemplateId);
@@ -707,7 +962,6 @@ namespace QuickPrice.Patches
         private static string FormatStackedItemPriceText(Item item, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取单价
             var unitPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
@@ -715,7 +969,9 @@ namespace QuickPrice.Patches
                 return "";
 
             int stackCount = item.StackObjectsCount;
-            double totalPrice = unitPrice.Value * stackCount;
+            bool isUnitPriceOnly = ShouldUseUnitPriceOnly(stackCount);
+            int effectiveCount = GetEffectiveStackCount(stackCount);
+            double totalPrice = unitPrice.Value * effectiveCount;
 
             // 计算单格价值（用于颜色编码）
             double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
@@ -726,7 +982,11 @@ namespace QuickPrice.Patches
             // 显示堆叠总价（仅当不禁售时）
             if (showRagfairPrice)
             {
-                string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)} (x{stackCount})";
+                string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                if (!isUnitPriceOnly && stackCount > 1)
+                {
+                    totalPriceText += $" (x{stackCount})";
+                }
                 totalPriceText = AppendRagfairBanLabel(totalPriceText, item);
                 if (Settings.EnableColorCoding.Value)
                 {
@@ -765,7 +1025,6 @@ namespace QuickPrice.Patches
         private static string FormatAmmoBoxPriceText(AmmoBox ammoBox, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // Plugin.Log.LogDebug($"🔍 弹匣分析: {ammoBox.LocalizedName()}");
             // Plugin.Log.LogDebug($"  - Cartridges 是否为 null: {ammoBox.Cartridges == null}");
@@ -940,7 +1199,6 @@ namespace QuickPrice.Patches
         private static string FormatMagazinePriceText(MagazineItemClass magazine, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // Plugin.Log.LogInfo($"🔍 弹匣详细分析: {magazine.LocalizedName()}");
             // Plugin.Log.LogInfo($"  - 弹匣类型: {magazine.GetType().FullName}");
@@ -1131,7 +1389,6 @@ namespace QuickPrice.Patches
         private static string FormatAmmoPriceText(AmmoItemClass ammoItem, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取价格
             var price = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
@@ -1139,7 +1396,9 @@ namespace QuickPrice.Patches
                 return "";
 
             int stackCount = ammoItem.StackObjectsCount;
-            double totalPrice = price.Value * stackCount;
+            bool isUnitPriceOnly = ShouldUseUnitPriceOnly(stackCount);
+            int effectiveCount = GetEffectiveStackCount(stackCount);
+            double totalPrice = price.Value * effectiveCount;
 
             // 计算单格价值（用于颜色编码）
             double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
@@ -1151,7 +1410,7 @@ namespace QuickPrice.Patches
             if (showRagfairPrice)
             {
                 string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
-                if (stackCount > 1)
+                if (!isUnitPriceOnly && stackCount > 1)
                 {
                     priceText += $" (x{stackCount})";
                 }
@@ -1201,7 +1460,6 @@ namespace QuickPrice.Patches
         private static string FormatArmorPriceText(Item armor, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取护甲价格
             var armorPrice = PriceDataService.Instance.GetPrice(armor.TemplateId);
@@ -1287,7 +1545,6 @@ namespace QuickPrice.Patches
         private static string FormatArmorPlatePriceText(Item plate, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取插板价格
             var platePrice = PriceDataService.Instance.GetPrice(plate.TemplateId);
@@ -1355,7 +1612,6 @@ namespace QuickPrice.Patches
         private static string FormatModPriceText(Mod mod, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取配件本体价格
             var modPrice = PriceDataService.Instance.GetPrice(mod.TemplateId);
@@ -1588,7 +1844,6 @@ namespace QuickPrice.Patches
         private static string FormatContainerPriceText(Item container, int slots)
         {
             var sb = new StringBuilder();
-            sb.Append("\n");
 
             // 获取容器本身价格
             var containerPrice = PriceDataService.Instance.GetPrice(container.TemplateId);

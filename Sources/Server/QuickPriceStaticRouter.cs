@@ -210,7 +210,7 @@ namespace QuickPrice.Server
                     _configLastWriteUtc = lastWriteUtc;
 
                     ServerLogControl.UpdateLevel(_config.LogLevel);
-                    LogInfo($"[QuickPrice] 配置文件已加载 (路径: {_configPath}, 自动刷新间隔: {_config.AutoRefreshIntervalMinutes} 分钟)", null);
+                    LogInfo($"[QuickPrice] 配置文件已加载 (路径: {_configPath}, 自动刷新间隔: {_config.AutoRefreshIntervalSeconds} 秒)", null);
                 }
             }
             catch (Exception ex)
@@ -223,7 +223,7 @@ namespace QuickPrice.Server
 
         private static void EnsureConfigLoaded()
         {
-            var previousInterval = _config?.AutoRefreshIntervalMinutes;
+            var previousInterval = _config?.AutoRefreshIntervalSeconds;
             var previousEnabled = _config?.Enabled;
 
             LoadConfig();
@@ -238,7 +238,7 @@ namespace QuickPrice.Server
                     return;
                 }
 
-                if (_config?.AutoRefreshIntervalMinutes != previousInterval || _config?.Enabled != previousEnabled)
+                if (_config?.AutoRefreshIntervalSeconds != previousInterval || _config?.Enabled != previousEnabled)
                     StartAutoRefreshTimer();
             }
         }
@@ -413,8 +413,10 @@ namespace QuickPrice.Server
 
             try
             {
+                var stopwatch = Stopwatch.StartNew();
                 var bannedItems = GetOrBuildRagfairBannedItemInfoCache();
-                LogInfo($"[QuickPrice-RagfairBan] 完整禁售列表已生成: {bannedItems.Count} 个物品", null);
+                stopwatch.Stop();
+                LogInfo($"[QuickPrice-RagfairBan] 完整禁售列表已生成: {bannedItems.Count} 个物品，用时 {stopwatch.ElapsedMilliseconds} 毫秒", null);
             }
             catch (Exception ex)
             {
@@ -1001,13 +1003,15 @@ namespace QuickPrice.Server
 
 
                 // 调用更新缓存方法
+                var preloadStopwatch = Stopwatch.StartNew();
                 await UpdateDynamicPriceCacheAsync();
+                preloadStopwatch.Stop();
 
                 if (_cachedDynamicPrices != null && _cachedDynamicPrices.Count > 0)
                 {
-                    LogSuccess($"[QuickPrice] 缓存预加载完成！{_cachedDynamicPrices.Count} 个物品已就绪", null);
+                    LogSuccess($"[QuickPrice] 缓存预加载完成！{_cachedDynamicPrices.Count} 个物品已就绪，用时 {preloadStopwatch.ElapsedMilliseconds} 毫秒", null);
 
-                    // 启动定时刷新（每30分钟）
+                    // 启动定时刷新（按配置秒数）
                     StartAutoRefreshTimer();
                 }
                 else
@@ -1068,11 +1072,13 @@ namespace QuickPrice.Server
                 }
 
 
+                var preloadStopwatch = Stopwatch.StartNew();
                 await UpdateTraderBuybackPriceCacheAsync();
+                preloadStopwatch.Stop();
 
                 if (_cachedTraderBuybackPrices != null && _cachedTraderBuybackPrices.Count > 0)
                 {
-                    LogSuccess($"[QuickPrice] 商人回收缓存预加载完成！{_cachedTraderBuybackPrices.Count} 个物品已就绪", null);
+                    LogSuccess($"[QuickPrice] 商人回收缓存预加载完成！{_cachedTraderBuybackPrices.Count} 个物品已就绪，用时 {preloadStopwatch.ElapsedMilliseconds} 毫秒", null);
                 }
                 else
                 {
@@ -1099,11 +1105,11 @@ namespace QuickPrice.Server
                     return;
                 }
 
-                // 获取配置的刷新间隔（默认5分钟）
-                int intervalMinutes = _config?.AutoRefreshIntervalMinutes ?? 5;
+                // 获取配置的刷新间隔（默认300秒）
+                int intervalSeconds = _config?.AutoRefreshIntervalSeconds ?? 300;
 
                 // 如果间隔为0，则禁用自动刷新
-                if (intervalMinutes <= 0)
+                if (intervalSeconds <= 0)
                 {
                     LogInfo("[QuickPrice] 自动刷新已禁用 (配置间隔为0)", null);
                     return;
@@ -1113,12 +1119,12 @@ namespace QuickPrice.Server
                 _autoRefreshTimer?.Dispose();
 
                 // 创建定时器：根据配置的间隔刷新
-                var refreshInterval = TimeSpan.FromMinutes(intervalMinutes);
+                var refreshInterval = TimeSpan.FromSeconds(intervalSeconds);
 
                 _autoRefreshTimer = new System.Threading.Timer(
                     async (state) =>
                     {
-                        LogInfo($"[QuickPrice] 自动刷新定时器触发（间隔: {intervalMinutes} 分钟）", null);
+                        LogInfo($"[QuickPrice] 自动刷新定时器触发（间隔: {intervalSeconds} 秒）", null);
                         await UpdateDynamicPriceCacheAsync(logStatus: true);
                         await UpdateTraderBuybackPriceCacheAsync(logStatus: true);
                     },
@@ -1127,7 +1133,7 @@ namespace QuickPrice.Server
                     refreshInterval   // 后续执行间隔
                 );
 
-                LogInfo($"[QuickPrice] 自动刷新定时器已启动（间隔: {intervalMinutes} 分钟）", null);
+                LogInfo($"[QuickPrice] 自动刷新定时器已启动（间隔: {intervalSeconds} 秒）", null);
             }
             catch (Exception ex)
             {

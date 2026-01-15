@@ -56,10 +56,12 @@ namespace QuickPrice.Config
         public static ConfigEntry<bool> ShowWeaponModsPrice;
         public static ConfigEntry<bool> ShowDetailedWeaponMods;
         public static ConfigEntry<bool> ShowBestPriceInBold;
+        public static ConfigEntry<int> StackCountUnitPriceThreshold;
 
         // ===== 3. 提示与交互 =====
         public static ConfigEntry<bool> RequireCtrlKey;
         public static ConfigEntry<float> TooltipDelay;
+        public static ConfigEntry<bool> DisableTooltipWidthLimit;
 
         // ===== 4. 颜色与显示 =====
         public static ConfigEntry<bool> EnableColorCoding;
@@ -215,6 +217,18 @@ namespace QuickPrice.Config
                 LegacySectionDisplay
             );
 
+            StackCountUnitPriceThreshold = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
+                "堆叠数量按单价显示阈值",
+                1000,
+                new ConfigDescription(
+                    "堆叠数量超过该阈值时仅显示单价，避免商店库存导致总价异常",
+                    new AcceptableValueRange<int>(1, 1000000)
+                ),
+                LegacySectionDisplay
+            );
+
             // ===== 3. 提示与交互 =====
             RequireCtrlKey = BindWithLegacy(
                 config,
@@ -235,6 +249,16 @@ namespace QuickPrice.Config
                     "鼠标悬停后多久显示价格提示框（0 = 立即显示）",
                     new AcceptableValueRange<float>(0f, 2f)
                 ),
+                LegacySectionMain
+            );
+
+            DisableTooltipWidthLimit = BindWithLegacy(
+                config,
+                SectionInteraction,
+                "取消提示框宽度限制",
+                true,
+                "取消物品提示框的固定宽度限制，避免长文本自动换行\n" +
+                "⚠️ 可能导致提示框超出屏幕边界",
                 LegacySectionMain
             );
 
