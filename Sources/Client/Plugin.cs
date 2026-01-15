@@ -45,6 +45,9 @@ namespace QuickPrice
                 Settings.Init(Config);
                 // Log.LogInfo("✅ 中文配置系统初始化成功");
 
+                // 启动异步获取服务端配置（不阻塞游戏启动）
+                _ = InitializeServerConfigAsync();
+
                 // v2.0: 启动异步价格数据加载（不阻塞游戏启动）
                 _ = InitializePricesAsync();
 
@@ -240,6 +243,42 @@ namespace QuickPrice
             {
                 Log.LogError($"❌ 加载跳蚤禁售列表失败: {ex.Message}");
                 ClientLog.Warning("   所有物品将默认显示跳蚤价格");
+            }
+        }
+
+        /// <summary>
+        /// 异步获取服务端配置并应用客户端覆盖
+        /// </summary>
+        private async Task InitializeServerConfigAsync()
+        {
+            try
+            {
+                var success = await ServerConfigService.Instance.UpdateServerConfigAsync();
+                if (!success)
+                {
+                    ClientLog.Warning("⚠️ 服务端配置加载失败，继续使用本地配置");
+                    return;
+                }
+
+                var config = ServerConfigService.Instance.GetConfig();
+                if (config == null)
+                {
+                    ClientLog.Warning("⚠️ 服务端配置为空，继续使用本地配置");
+                    return;
+                }
+
+                if (Settings.ApplyServerConfigOverrides(config))
+                {
+                    ClientLog.Debug("✅ 已应用服务端配置覆盖");
+                }
+                else
+                {
+                    ClientLog.Debug("ℹ️ 服务端未启用配置覆盖，使用本地配置");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.LogError($"❌ 获取服务端配置失败: {ex.Message}");
             }
         }
 

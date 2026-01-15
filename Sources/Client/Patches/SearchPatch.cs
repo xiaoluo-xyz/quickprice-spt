@@ -106,11 +106,11 @@ namespace QuickPrice.Patches
                 double pricePerSlot = slots > 0 ? price.Value / slots : price.Value;
 
                 // 使用与背景色相同的等级划分逻辑
-                if (pricePerSlot <= Settings.PriceThreshold1.Value) return 1;
-                if (pricePerSlot <= Settings.PriceThreshold2.Value) return 2;
-                if (pricePerSlot <= Settings.PriceThreshold3.Value) return 3;
-                if (pricePerSlot <= Settings.PriceThreshold4.Value) return 4;
-                if (pricePerSlot <= Settings.PriceThreshold5.Value) return 5;
+                if (pricePerSlot <= Settings.GetPriceThreshold1()) return 1;
+                if (pricePerSlot <= Settings.GetPriceThreshold2()) return 2;
+                if (pricePerSlot <= Settings.GetPriceThreshold3()) return 3;
+                if (pricePerSlot <= Settings.GetPriceThreshold4()) return 4;
+                if (pricePerSlot <= Settings.GetPriceThreshold5()) return 5;
                 return 6;
             }
         }
@@ -126,7 +126,7 @@ namespace QuickPrice.Patches
             [HarmonyPrefix]
             public static bool Prefix(ref Task __result, GClass3515 __instance)
             {
-                if (!Settings.EnableSearchTimeAdjustment.Value)
+                if (!Settings.GetEnableSearchTimeAdjustment())
                     return true;
 
                 if (IsProcessing)
@@ -171,7 +171,7 @@ namespace QuickPrice.Patches
                         float baseSearchTime = CalculateSearchTime(priceLevel);
                         float actualSearchTime = baseSearchTime / skillFactor;
 
-                        // 使用固定延迟，移除随机因素
+                        // 使用计算后的延迟（可包含随机范围）
                         try
                         {
                             await Task.Delay((int)(actualSearchTime * 1000f), __instance.CancellationTokenSource_0.Token);
@@ -221,16 +221,34 @@ namespace QuickPrice.Patches
 
             private static float CalculateSearchTime(int priceLevel)
             {
-                return priceLevel switch
+                float baseTime = priceLevel switch
                 {
-                    1 => Settings.SearchTimeLevel1.Value,
-                    2 => Settings.SearchTimeLevel2.Value,
-                    3 => Settings.SearchTimeLevel3.Value,
-                    4 => Settings.SearchTimeLevel4.Value,
-                    5 => Settings.SearchTimeLevel5.Value,
-                    6 => Settings.SearchTimeLevel6.Value,
-                    _ => Settings.SearchTimeLevel1.Value
+                    1 => Settings.GetSearchTimeLevel1(),
+                    2 => Settings.GetSearchTimeLevel2(),
+                    3 => Settings.GetSearchTimeLevel3(),
+                    4 => Settings.GetSearchTimeLevel4(),
+                    5 => Settings.GetSearchTimeLevel5(),
+                    6 => Settings.GetSearchTimeLevel6(),
+                    _ => Settings.GetSearchTimeLevel1()
                 };
+
+                float randomMin = Settings.GetSearchTimeRandomMin();
+                float randomMax = Settings.GetSearchTimeRandomMax();
+
+                if (randomMax < randomMin)
+                {
+                    var temp = randomMin;
+                    randomMin = randomMax;
+                    randomMax = temp;
+                }
+
+                float randomDelay = 0f;
+                if (randomMax > 0f || randomMin > 0f)
+                {
+                    randomDelay = UnityEngine.Random.Range(randomMin, randomMax);
+                }
+
+                return baseTime + randomDelay;
             }
             /// <summary>
             /// 根据物品价格计算等级（1-6）- 复用你已有的逻辑
@@ -245,11 +263,11 @@ namespace QuickPrice.Patches
                 double pricePerSlot = slots > 0 ? price.Value / slots : price.Value;
 
                 // 使用与背景色相同的等级划分逻辑
-                if (pricePerSlot <= Settings.PriceThreshold1.Value) return 1;
-                if (pricePerSlot <= Settings.PriceThreshold2.Value) return 2;
-                if (pricePerSlot <= Settings.PriceThreshold3.Value) return 3;
-                if (pricePerSlot <= Settings.PriceThreshold4.Value) return 4;
-                if (pricePerSlot <= Settings.PriceThreshold5.Value) return 5;
+                if (pricePerSlot <= Settings.GetPriceThreshold1()) return 1;
+                if (pricePerSlot <= Settings.GetPriceThreshold2()) return 2;
+                if (pricePerSlot <= Settings.GetPriceThreshold3()) return 3;
+                if (pricePerSlot <= Settings.GetPriceThreshold4()) return 4;
+                if (pricePerSlot <= Settings.GetPriceThreshold5()) return 5;
                 return 6;
             }
         }

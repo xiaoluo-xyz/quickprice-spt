@@ -1,74 +1,121 @@
+using System;
+using System.Collections.Generic;
+using System.Reflection;
 using BepInEx.Configuration;
 using UnityEngine;
 using QuickPrice.Logging;
+using QuickPrice.Models;
 
 namespace QuickPrice.Config
 {
     public static class Settings
     {
-        // ===== 1. 主要设置 =====
+        private const string SectionServer = "0. 服务端同步";
+        private const string SectionGeneral = "1. 基础开关";
+        private const string SectionPriceDisplay = "2. 价格显示";
+        private const string SectionInteraction = "3. 提示与交互";
+        private const string SectionColorDisplay = "4. 颜色与显示";
+        private const string SectionPriceThresholds = "4.1 价格颜色阈值";
+        private const string SectionPenetrationThresholds = "4.2 穿甲颜色阈值";
+        private const string SectionArmor = "4.3 护甲等级显示";
+        private const string SectionThresholdReset = "4.4 阈值重置";
+        private const string SectionCache = "5. 价格缓存与刷新";
+        private const string SectionContainer = "5.1 容器性能";
+        private const string SectionSearch = "6. 搜索设置";
+        private const string SectionDebug = "7. 调试设置";
+
+        private const string LegacySectionServer = "0. 服务端覆盖";
+        private const string LegacySectionMain = "1. 主要设置";
+        private const string LegacySectionDisplay = "2. 显示设置";
+        private const string LegacySectionPriceThresholds = "2.1 价格颜色阈值";
+        private const string LegacySectionPenetrationThresholds = "2.2 穿甲颜色阈值";
+        private const string LegacySectionArmor = "2.3 护甲等级设置";
+        private const string LegacySectionReset = "2.4 重置功能";
+        private const string LegacySectionPerformance = "3. 性能设置";
+        private const string LegacySectionContainer = "3.1 容器性能优化";
+        private const string LegacySectionV2Features = "4. v2.0 新增功能";
+        private const string LegacySectionSearch = "4.1 搜索设置";
+        private const string LegacySectionDebug = "5. 调试设置";
+
+        private static readonly ConfigurationManagerAttributes ServerOverrideAttributes = new ConfigurationManagerAttributes { ReadOnly = false };
+        private static readonly ConfigurationManagerAttributes StatusReadOnlyAttributes = new ConfigurationManagerAttributes { ReadOnly = true };
+        private static readonly List<ConfigEntryBase> OverrideEntries = new List<ConfigEntryBase>();
+        private static readonly Dictionary<ConfigEntryBase, object> OverrideLocalValues = new Dictionary<ConfigEntryBase, object>();
+
+        // ===== 0. 服务端同步 =====
+        public static ConfigEntry<string> ServerConfigStatus;
+
+        // ===== 1. 基础开关 =====
         public static ConfigEntry<bool> PluginEnabled;
+
+        // ===== 2. 价格显示 =====
         public static ConfigEntry<bool> ShowFleaPrices;
+        public static ConfigEntry<bool> ShowTraderPrices;      // 显示商人价格
+        public static ConfigEntry<bool> ShowFleaTax;            // 显示跳蚤税费
         public static ConfigEntry<bool> ShowPricePerSlot;
         public static ConfigEntry<bool> ShowWeaponModsPrice;
         public static ConfigEntry<bool> ShowDetailedWeaponMods;
+        public static ConfigEntry<bool> ShowBestPriceInBold;
+
+        // ===== 3. 提示与交互 =====
         public static ConfigEntry<bool> RequireCtrlKey;
         public static ConfigEntry<float> TooltipDelay;
 
-        // ===== 2. 显示设置 =====
+        // ===== 4. 颜色与显示 =====
         public static ConfigEntry<bool> EnableColorCoding;
-        public static ConfigEntry<bool> ShowBestPriceInBold;
         public static ConfigEntry<bool> UseCaliberPenetrationPower;
         public static ConfigEntry<bool> ColorItemName;
         public static ConfigEntry<bool> EnablePriceBasedBackgroundColor;
         public static ConfigEntry<bool> ShowGroundItemPrice;  // 显示地面物品价格（跟随物品名称）
 
-        // ===== 2.1 价格颜色阈值 =====
+        // ===== 4.1 价格颜色阈值 =====
         public static ConfigEntry<int> PriceThreshold1; // 白色→绿色
         public static ConfigEntry<int> PriceThreshold2; // 绿色→蓝色
         public static ConfigEntry<int> PriceThreshold3; // 蓝色→紫色
         public static ConfigEntry<int> PriceThreshold4; // 紫色→橙色
         public static ConfigEntry<int> PriceThreshold5; // 橙色→红色
 
-        // ===== 2.2 穿甲颜色阈值 =====
+        // ===== 4.2 穿甲颜色阈值 =====
         public static ConfigEntry<int> PenetrationThreshold1; // 白色→绿色
         public static ConfigEntry<int> PenetrationThreshold2; // 绿色→蓝色
         public static ConfigEntry<int> PenetrationThreshold3; // 蓝色→紫色
         public static ConfigEntry<int> PenetrationThreshold4; // 紫色→橙色
         public static ConfigEntry<int> PenetrationThreshold5; // 橙色→红色
 
-        // ===== 2.3 护甲等级设置 =====
+        // ===== 4.3 护甲等级显示 =====
         public static ConfigEntry<bool> EnableArmorClassColoring; // 启用护甲等级着色
         public static ConfigEntry<bool> ShowArmorClass; // 显示护甲等级文字
 
-        // ===== 2.4 重置功能 =====
+        // ===== 4.4 阈值重置 =====
         public static ConfigEntry<string> ResetThresholdsButton; // 重置阈值按钮
 
-        // ===== 3. 性能设置 =====
+        // ===== 5. 价格缓存与刷新 =====
         public static ConfigEntry<bool> UseDynamicPrices;
         public static ConfigEntry<CacheMode> PriceCacheMode;    // v2.0: 缓存模式
+        public static ConfigEntry<bool> AutoRefreshOnOpenInventory; // 打开物品栏自动刷新
+        public static ConfigEntry<KeyCode> RefreshPricesKey;   // 刷新价格快捷键
 
-        // ===== 3.1 容器性能优化 =====
+        // ===== 5.1 容器性能 =====
         public static ConfigEntry<bool> EnableContainerPriceCalculation; // 启用容器内物品价格计算
         public static ConfigEntry<int> MaxContainerDepth;        // 最大递归深度
         public static ConfigEntry<int> MaxContainerItems;        // 最大计算物品数
         public static ConfigEntry<bool> SkipLargeContainers;     // 跳过大容器
         public static ConfigEntry<int> LargeContainerThreshold;  // 大容器阈值
 
-        // ===== 4. v2.0 新增功能 =====
-        public static ConfigEntry<bool> ShowTraderPrices;      // 显示商人价格
-        public static ConfigEntry<bool> ShowFleaTax;            // 显示跳蚤税费
-        public static ConfigEntry<bool> AutoRefreshOnOpenInventory; // 打开物品栏自动刷新
-        public static ConfigEntry<KeyCode> RefreshPricesKey;   // 刷新价格快捷键
-        public static ConfigEntry<bool> EnableDebugLogs;      // 调试日志开关
+        // ===== 6. 搜索设置 =====
         public static ConfigEntry<bool> EnableSearchSound;    // 搜索音效开关
         public static ConfigEntry<bool> EnableSearchTimeAdjustment; // 搜索时间调整开关
+        public static ConfigEntry<float> SearchTimeRandomMin; // 搜索随机延迟最小值
+        public static ConfigEntry<float> SearchTimeRandomMax; // 搜索随机延迟最大值
         public static ConfigEntry<float> SearchTimeLevel1;    // 搜索时间：品质等级1
         public static ConfigEntry<float> SearchTimeLevel2;    // 搜索时间：品质等级2
         public static ConfigEntry<float> SearchTimeLevel3;    // 搜索时间：品质等级3
         public static ConfigEntry<float> SearchTimeLevel4;    // 搜索时间：品质等级4
         public static ConfigEntry<float> SearchTimeLevel5;    // 搜索时间：品质等级5
         public static ConfigEntry<float> SearchTimeLevel6;    // 搜索时间：品质等级6
+
+        // ===== 7. 调试设置 =====
+        public static ConfigEntry<bool> EnableDebugLogs;      // 调试日志开关
 
         // 默认阈值常量
         private const int DEFAULT_PRICE_THRESHOLD_1 = 25000;
@@ -84,6 +131,8 @@ namespace QuickPrice.Config
         private const int DEFAULT_PENETRATION_THRESHOLD_5 = 60;
 
         private static ConfigFile _configFile; // 保存 ConfigFile 引用用于重置
+        private static bool _serverOverrideEnabled;
+        private static ServerClientConfig _serverConfig;
 
         // 缓存模式枚举
         public enum CacheMode
@@ -99,242 +148,306 @@ namespace QuickPrice.Config
             // 保存 ConfigFile 引用用于重置功能
             _configFile = config;
 
-            // ===== 1. 主要设置 =====
-            PluginEnabled = config.Bind(
-                "1. 主要设置",
+            // ===== 0. 服务端同步 =====
+            ServerConfigStatus = BindWithLegacy(
+                config,
+                SectionServer,
+                "服务器配置状态（只读）",
+                "使用本地配置",
+                CreateStatusDescription("显示当前是否使用服务器配置覆盖本地参数"),
+                LegacySectionServer
+            );
+
+            // ===== 1. 基础开关 =====
+            PluginEnabled = BindWithLegacy(
+                config,
+                SectionGeneral,
                 "启用插件",
                 true,
-                "是否启用 QuickPrice 插件"
+                "是否启用 QuickPrice 插件",
+                LegacySectionMain
             );
 
-            ShowFleaPrices = config.Bind(
-                "1. 主要设置",
+            // ===== 2. 价格显示 =====
+            ShowFleaPrices = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
                 "显示跳蚤市场价格",
                 true,
-                "在物品提示框中显示跳蚤市场价格"
+                "在物品提示框中显示跳蚤市场价格",
+                LegacySectionMain
             );
 
-            ShowPricePerSlot = config.Bind(
-                "1. 主要设置",
+            ShowPricePerSlot = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
                 "显示每格价格",
                 true,
-                "显示物品的单格位价格（价格/格数）"
+                "显示物品的单格位价格（价格/格数）",
+                LegacySectionMain
             );
 
-            ShowWeaponModsPrice = config.Bind(
-                "1. 主要设置",
+            ShowWeaponModsPrice = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
                 "显示武器配件价格",
                 true,
-                "显示武器所有配件的总价值（递归计算所有层级配件）"
+                "显示武器所有配件的总价值（递归计算所有层级配件）",
+                LegacySectionMain
             );
 
-            ShowDetailedWeaponMods = config.Bind(
-                "1. 主要设置",
+            ShowDetailedWeaponMods = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
                 "显示配件详细列表",
                 false,
                 "显示所有配件的层级结构和价格\n" +
-                "以缩进树状结构显示配件及其子配件"
+                "以缩进树状结构显示配件及其子配件",
+                LegacySectionMain
             );
 
-            RequireCtrlKey = config.Bind(
-                "1. 主要设置",
+            ShowBestPriceInBold = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
+                "最佳价格加粗",
+                true,
+                "用粗体突出显示最高价格",
+                LegacySectionDisplay
+            );
+
+            // ===== 3. 提示与交互 =====
+            RequireCtrlKey = BindWithLegacy(
+                config,
+                SectionInteraction,
                 "按住Ctrl键才显示",
                 false,
                 "需要按住Ctrl键（左Ctrl或右Ctrl）才显示价格\n" +
-                "关闭此选项则鼠标悬停即显示价格"
+                "关闭此选项则鼠标悬停即显示价格",
+                LegacySectionMain
             );
 
-            TooltipDelay = config.Bind(
-                "1. 主要设置",
+            TooltipDelay = BindWithLegacy(
+                config,
+                SectionInteraction,
                 "提示框延迟（秒）",
                 0.0f,
                 new ConfigDescription(
                     "鼠标悬停后多久显示价格提示框（0 = 立即显示）",
                     new AcceptableValueRange<float>(0f, 2f)
-                )
+                ),
+                LegacySectionMain
             );
 
-            // ===== 2. 显示设置 =====
-            EnableColorCoding = config.Bind(
-                "2. 显示设置",
+            // ===== 4. 颜色与显示 =====
+            EnableColorCoding = BindWithLegacy(
+                config,
+                SectionColorDisplay,
                 "启用颜色编码",
                 true,
                 "根据价格自动着色物品名称\n" +
-                "白色≤3千 | 绿色≤1万 | 蓝色≤2万 | 紫色≤5万 | 橙色≤10万 | 红色>10万"
+                "白色≤3千 | 绿色≤1万 | 蓝色≤2万 | 紫色≤5万 | 橙色≤10万 | 红色>10万",
+                LegacySectionDisplay
             );
 
-            ShowBestPriceInBold = config.Bind(
-                "2. 显示设置",
-                "最佳价格加粗",
-                true,
-                "用粗体突出显示最高价格"
-            );
-
-            UseCaliberPenetrationPower = config.Bind(
-                "2. 显示设置",
+            UseCaliberPenetrationPower = BindWithLegacy(
+                config,
+                SectionColorDisplay,
                 "子弹按穿甲等级着色",
                 true,
                 "子弹和弹药盒使用穿甲等级着色，而不是价格着色\n" +
-                "颜色等级：白色<15 | 绿色<25 | 蓝色<35 | 紫色<45 | 橙色<55 | 红色≥55"
+                "颜色等级：白色<15 | 绿色<25 | 蓝色<35 | 紫色<45 | 橙色<55 | 红色≥55",
+                LegacySectionDisplay
             );
 
-            ColorItemName = config.Bind(
-                "2. 显示设置",
+            ColorItemName = BindWithLegacy(
+                config,
+                SectionColorDisplay,
                 "物品名称着色",
                 true,
                 "根据物品价值或穿甲等级给物品名称着色\n" +
                 "✅ 适用范围：物品栏提示框 + 战局内地面散落物品\n" +
-                "普通物品/武器按价格着色 | 子弹/弹匣按穿甲等级着色 | 护甲按防弹等级着色"
+                "普通物品/武器按价格着色 | 子弹/弹匣按穿甲等级着色 | 护甲按防弹等级着色",
+                LegacySectionDisplay
             );
 
-            EnablePriceBasedBackgroundColor = config.Bind(
-                "2. 显示设置",
+            EnablePriceBasedBackgroundColor = BindWithLegacy(
+                config,
+                SectionColorDisplay,
                 "自动着色物品背景",
                 true,
                 "根据物品价格自动修改物品单元格背景颜色\n" +
                 "无需鼠标悬停，打开物品栏即可看到所有物品已着色\n" +
                 "使用与物品名称相同的价格阈值配置\n" +
-                "注意：可能与 ColorConverterAPI 等其他颜色插件冲突"
+                "注意：可能与 ColorConverterAPI 等其他颜色插件冲突",
+                LegacySectionDisplay
             );
 
-            ShowGroundItemPrice = config.Bind(
-                "2. 显示设置",
+            ShowGroundItemPrice = BindWithLegacy(
+                config,
+                SectionColorDisplay,
                 "地面物品显示价格",
                 true,
                 "在战局内地面散落物品名称后显示价格\n" +
                 "格式：物品名称 (单格价值₽) 或 物品名称 (总价₽)\n" +
                 "颜色会根据单格价值自动调整\n" +
-                "注意：需要启用\"物品名称着色\"选项才会生效"
+                "注意：需要启用\"物品名称着色\"选项才会生效",
+                LegacySectionDisplay
             );
 
-            // ===== 2.1 价格颜色阈值 =====
-            PriceThreshold1 = config.Bind(
-                "2.1 价格颜色阈值",
+            // ===== 4.1 价格颜色阈值 =====
+            PriceThreshold1 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPriceThresholds,
                 "阈值1 - 白色→绿色",
                 DEFAULT_PRICE_THRESHOLD_1,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "价格 ≤ 此值显示白色，> 此值显示绿色或更高等级",
                     new AcceptableValueRange<int>(0, 1000000)
-                )
-            );
+                ),
+                LegacySectionPriceThresholds
+            ));
 
-            PriceThreshold2 = config.Bind(
-                "2.1 价格颜色阈值",
+            PriceThreshold2 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPriceThresholds,
                 "阈值2 - 绿色→蓝色",
                 DEFAULT_PRICE_THRESHOLD_2,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "价格 ≤ 此值显示绿色，> 此值显示蓝色或更高等级",
                     new AcceptableValueRange<int>(0, 1000000)
-                )
-            );
+                ),
+                LegacySectionPriceThresholds
+            ));
 
-            PriceThreshold3 = config.Bind(
-                "2.1 价格颜色阈值",
+            PriceThreshold3 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPriceThresholds,
                 "阈值3 - 蓝色→紫色",
                 DEFAULT_PRICE_THRESHOLD_3,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "价格 ≤ 此值显示蓝色，> 此值显示紫色或更高等级",
                     new AcceptableValueRange<int>(0, 1000000)
-                )
-            );
+                ),
+                LegacySectionPriceThresholds
+            ));
 
-            PriceThreshold4 = config.Bind(
-                "2.1 价格颜色阈值",
+            PriceThreshold4 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPriceThresholds,
                 "阈值4 - 紫色→橙色",
                 DEFAULT_PRICE_THRESHOLD_4,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "价格 ≤ 此值显示紫色，> 此值显示橙色或更高等级",
                     new AcceptableValueRange<int>(0, 1000000)
-                )
-            );
+                ),
+                LegacySectionPriceThresholds
+            ));
 
-            PriceThreshold5 = config.Bind(
-                "2.1 价格颜色阈值",
+            PriceThreshold5 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPriceThresholds,
                 "阈值5 - 橙色→红色",
                 DEFAULT_PRICE_THRESHOLD_5,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "价格 ≤ 此值显示橙色，> 此值显示红色",
                     new AcceptableValueRange<int>(0, 1000000)
-                )
-            );
+                ),
+                LegacySectionPriceThresholds
+            ));
 
-            // ===== 2.2 穿甲颜色阈值 =====
-            PenetrationThreshold1 = config.Bind(
-                "2.2 穿甲颜色阈值",
+            // ===== 4.2 穿甲颜色阈值 =====
+            PenetrationThreshold1 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPenetrationThresholds,
                 "阈值1 - 白色→绿色",
                 DEFAULT_PENETRATION_THRESHOLD_1,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "穿甲值 < 此值显示白色，≥ 此值显示绿色或更高等级",
                     new AcceptableValueRange<int>(0, 100)
-                )
-            );
+                ),
+                LegacySectionPenetrationThresholds
+            ));
 
-            PenetrationThreshold2 = config.Bind(
-                "2.2 穿甲颜色阈值",
+            PenetrationThreshold2 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPenetrationThresholds,
                 "阈值2 - 绿色→蓝色",
                 DEFAULT_PENETRATION_THRESHOLD_2,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "穿甲值 < 此值显示绿色，≥ 此值显示蓝色或更高等级",
                     new AcceptableValueRange<int>(0, 100)
-                )
-            );
+                ),
+                LegacySectionPenetrationThresholds
+            ));
 
-            PenetrationThreshold3 = config.Bind(
-                "2.2 穿甲颜色阈值",
+            PenetrationThreshold3 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPenetrationThresholds,
                 "阈值3 - 蓝色→紫色",
                 DEFAULT_PENETRATION_THRESHOLD_3,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "穿甲值 < 此值显示蓝色，≥ 此值显示紫色或更高等级",
                     new AcceptableValueRange<int>(0, 100)
-                )
-            );
+                ),
+                LegacySectionPenetrationThresholds
+            ));
 
-            PenetrationThreshold4 = config.Bind(
-                "2.2 穿甲颜色阈值",
+            PenetrationThreshold4 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPenetrationThresholds,
                 "阈值4 - 紫色→橙色",
                 DEFAULT_PENETRATION_THRESHOLD_4,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "穿甲值 < 此值显示紫色，≥ 此值显示橙色或更高等级",
                     new AcceptableValueRange<int>(0, 100)
-                )
-            );
+                ),
+                LegacySectionPenetrationThresholds
+            ));
 
-            PenetrationThreshold5 = config.Bind(
-                "2.2 穿甲颜色阈值",
+            PenetrationThreshold5 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionPenetrationThresholds,
                 "阈值5 - 橙色→红色",
                 DEFAULT_PENETRATION_THRESHOLD_5,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "穿甲值 < 此值显示橙色，≥ 此值显示红色",
                     new AcceptableValueRange<int>(0, 100)
-                )
-            );
+                ),
+                LegacySectionPenetrationThresholds
+            ));
 
-            // ===== 2.3 护甲等级设置 =====
-            EnableArmorClassColoring = config.Bind(
-                "2.3 护甲等级设置",
+            // ===== 4.3 护甲等级显示 =====
+            EnableArmorClassColoring = BindWithLegacy(
+                config,
+                SectionArmor,
                 "启用护甲等级着色",
                 true,
                 "根据护甲防弹等级（1-6级）自动着色护甲背景和名称\n" +
                 "1级=灰色 | 2级=绿色 | 3级=蓝色 | 4级=紫色 | 5级=橙色 | 6级=红色\n" +
-                "自动检测护甲本体和内部防弹插板，取最高等级"
+                "自动检测护甲本体和内部防弹插板，取最高等级",
+                LegacySectionArmor
             );
 
-            ShowArmorClass = config.Bind(
-                "2.3 护甲等级设置",
+            ShowArmorClass = BindWithLegacy(
+                config,
+                SectionArmor,
                 "显示护甲等级文字",
                 true,
                 "在护甲提示框中显示防弹等级（例如：防弹等级: 4级）\n" +
-                "自动检测可拆卸防弹插板和内置防弹内衬"
+                "自动检测可拆卸防弹插板和内置防弹内衬",
+                LegacySectionArmor
             );
 
-            // ===== 2.4 重置功能 =====
-            ResetThresholdsButton = config.Bind(
-                "2.4 重置功能",
+            // ===== 4.4 阈值重置 =====
+            ResetThresholdsButton = BindWithLegacy(
+                config,
+                SectionThresholdReset,
                 "点击重置所有阈值",
                 "点击按钮重置",
                 "点击下方按钮将所有价格和穿甲阈值重置为默认值\n" +
                 "⚠️ 重置后立即生效，会覆盖您的自定义配置\n" +
-                "💡 提示：在配置管理器(F12)中，修改此项的值即可触发重置"
+                "💡 提示：在配置管理器(F12)中，修改此项的值即可触发重置",
+                LegacySectionReset
             );
 
             // 监听重置按钮的值变化
@@ -350,42 +463,49 @@ namespace QuickPrice.Config
                 // Plugin.Log.LogInfo("===========================================");
             };
 
-            // ===== 3. 性能设置 =====
-            UseDynamicPrices = config.Bind(
-                "3. 性能设置",
+            // ===== 5. 价格缓存与刷新 =====
+            UseDynamicPrices = BindWithLegacy(
+                config,
+                SectionCache,
                 "使用动态价格",
                 true,  // 默认开启动态价格
                 "✅ 推荐：开启（使用跳蚤市场实时价格，更准确）\n" +
                 "动态价格：从跳蚤市场实时获取（更准确但加载慢）\n" +
                 "静态价格：使用游戏基础价格（快速但可能略有偏差）\n" +
-                "⚠️ 动态价格需要查询数千个物品，首次加载可能需要30-60秒"
+                "⚠️ 动态价格需要查询数千个物品，首次加载可能需要30-60秒",
+                LegacySectionPerformance
             );
 
-            PriceCacheMode = config.Bind(
-                "3. 性能设置",
+            PriceCacheMode = BindWithLegacy(
+                config,
+                SectionCache,
                 "价格缓存模式",
                 CacheMode.Permanent,
                 "永久缓存：启动时加载一次，不再刷新（推荐）\n" +
                 "5分钟刷新：缓存5分钟后自动过期\n" +
                 "10分钟刷新：缓存10分钟后自动过期\n" +
                 "仅手动刷新：只在手动触发时刷新\n" +
-                "⚠️ 自动刷新可能导致短暂卡顿"
+                "⚠️ 自动刷新可能导致短暂卡顿",
+                LegacySectionPerformance
             );
 
-            // ===== 3.1 容器性能优化 =====
-            EnableContainerPriceCalculation = config.Bind(
-                "3.1 容器性能优化",
+            // ===== 5.1 容器性能 =====
+            EnableContainerPriceCalculation = BindWithLegacy(
+                config,
+                SectionContainer,
                 "启用容器内物品价格计算",
                 true,
                 "是否计算容器（背包、箱子等）内部物品的价格\n" +
                 "✅ 启用：显示「容器价值 + 内部物品价值」的总价\n" +
                 "❌ 禁用：仅显示容器本身的价格，完全跳过内部物品计算\n" +
                 "⚠️ 如果您的容器物品很多导致卡顿，建议禁用此选项\n" +
-                "推荐：如果经常卡顿则禁用，否则启用"
+                "推荐：如果经常卡顿则禁用，否则启用",
+                LegacySectionContainer
             );
 
-            MaxContainerDepth = config.Bind(
-                "3.1 容器性能优化",
+            MaxContainerDepth = BindWithLegacy(
+                config,
+                SectionContainer,
                 "最大递归深度",
                 10,
                 new ConfigDescription(
@@ -395,11 +515,13 @@ namespace QuickPrice.Config
                     "推荐值：10-20\n" +
                     "⚠️ 仅在「启用容器内物品价格计算」为 true 时有效",
                     new AcceptableValueRange<int>(1, 50)
-                )
+                ),
+                LegacySectionContainer
             );
 
-            MaxContainerItems = config.Bind(
-                "3.1 容器性能优化",
+            MaxContainerItems = BindWithLegacy(
+                config,
+                SectionContainer,
                 "最大计算物品数",
                 100,
                 new ConfigDescription(
@@ -409,21 +531,25 @@ namespace QuickPrice.Config
                     "推荐值：50-100\n" +
                     "⚠️ 仅在「启用容器内物品价格计算」为 true 时有效",
                     new AcceptableValueRange<int>(0, 500)
-                )
+                ),
+                LegacySectionContainer
             );
 
-            SkipLargeContainers = config.Bind(
-                "3.1 容器性能优化",
+            SkipLargeContainers = BindWithLegacy(
+                config,
+                SectionContainer,
                 "跳过大容器计算",
                 true,
                 "当容器内物品数量超过阈值时，跳过详细价格计算\n" +
                 "仅显示容器本身价格，避免卡顿\n" +
                 "推荐：启用（可避免大型物品箱卡顿）\n" +
-                "⚠️ 仅在「启用容器内物品价格计算」为 true 时有效"
+                "⚠️ 仅在「启用容器内物品价格计算」为 true 时有效",
+                LegacySectionContainer
             );
 
-            LargeContainerThreshold = config.Bind(
-                "3.1 容器性能优化",
+            LargeContainerThreshold = BindWithLegacy(
+                config,
+                SectionContainer,
                 "大容器物品数阈值",
                 50,
                 new ConfigDescription(
@@ -433,138 +559,195 @@ namespace QuickPrice.Config
                     "推荐值：30-100\n" +
                     "⚠️ 仅在「启用容器内物品价格计算」为 true 时有效",
                     new AcceptableValueRange<int>(10, 500)
-                )
+                ),
+                LegacySectionContainer
             );
 
-            // ===== 4. v2.0 新增功能 =====
-            ShowTraderPrices = config.Bind(
-                "4. v2.0 新增功能",
+            // ===== 2. 价格显示 =====
+            ShowTraderPrices = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
                 "显示商人价格",
                 true,
                 "显示所有商人的收购价格，并与跳蚤价格对比\n" +
                 "自动显示最佳价格（商人 vs 跳蚤市场）\n" +
-                "⚠️ 注意：首次启动游戏后，需要先打开一次商人界面（如 Prapor）来初始化商人数据"
+                "⚠️ 注意：首次启动游戏后，需要先打开一次商人界面（如 Prapor）来初始化商人数据",
+                LegacySectionV2Features
             );
 
-            ShowFleaTax = config.Bind(
-                "4. v2.0 新增功能",
+            ShowFleaTax = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
                 "显示跳蚤税费",
                 true,
                 "显示在跳蚤市场出售物品需要支付的税费\n" +
-                "包含税后净利润计算"
+                "包含税后净利润计算",
+                LegacySectionV2Features
             );
 
-            AutoRefreshOnOpenInventory = config.Bind(
-                "4. v2.0 新增功能",
+            // ===== 5. 价格缓存与刷新 =====
+            AutoRefreshOnOpenInventory = BindWithLegacy(
+                config,
+                SectionCache,
                 "打开物品栏自动刷新",
                 true,
                 "打开物品栏时如果缓存过期则自动异步刷新价格数据\n" +
                 "不阻塞界面，后台更新\n" +
                 "⚠️ 仅在缓存模式为「5分钟刷新」或「10分钟刷新」时有效\n" +
-                "永久缓存模式下此选项无效"
+                "永久缓存模式下此选项无效",
+                LegacySectionV2Features
             );
 
-            RefreshPricesKey = config.Bind(
-                "4. v2.0 新增功能",
+            RefreshPricesKey = BindWithLegacy(
+                config,
+                SectionCache,
                 "刷新价格快捷键",
                 KeyCode.F10,
                 "按此键立即强制刷新跳蚤市场价格缓存\n" +
                 "默认快捷键: F10\n" +
                 "刷新过程异步进行，不会阻塞游戏\n" +
                 "适用于动态价格模式，可随时获取最新跳蚤市场价格\n" +
-                "💡 配合永久缓存模式使用，需要更新价格时手动刷新"
+                "💡 配合永久缓存模式使用，需要更新价格时手动刷新",
+                LegacySectionV2Features
             );
 
-            // ===== 4.1 搜索设置 =====
-            EnableSearchSound = config.Bind(
-                "4.1 搜索设置",
+            // ===== 6. 搜索设置 =====
+            EnableSearchSound = BindWithLegacy(
+                config,
+                SectionSearch,
                 "启用搜索音效",
                 false,
                 "根据物品价值等级播放不同的搜索音效\n" +
-                "关闭后使用游戏原始搜索音效"
+                "关闭后使用游戏原始搜索音效",
+                LegacySectionSearch
             );
 
-            EnableSearchTimeAdjustment = config.Bind(
-                "4.1 搜索设置",
+            EnableSearchTimeAdjustment = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
                 "启用搜索时间调整",
                 false,
-                "根据物品价值等级调整搜索时间（高价值耗时更长）\n" +
-                "关闭后使用游戏原始搜索时间"
-            );
+                CreateOverrideDescription(
+                    "根据物品价值等级调整搜索时间（高价值耗时更长）\n" +
+                    "关闭后使用游戏原始搜索时间"
+                ),
+                LegacySectionSearch
+            ));
 
-            SearchTimeLevel1 = config.Bind(
-                "4.1 搜索设置",
+            SearchTimeRandomMin = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
+                "搜索随机延迟最小值（秒）",
+                0f,
+                CreateOverrideDescription(
+                    "在基础搜索时间上增加随机延迟的最小值\n" +
+                    "仅在启用搜索时间调整时生效",
+                    new AcceptableValueRange<float>(0f, 10f)
+                ),
+                LegacySectionSearch
+            ));
+
+            SearchTimeRandomMax = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
+                "搜索随机延迟最大值（秒）",
+                1f,
+                CreateOverrideDescription(
+                    "在基础搜索时间上增加随机延迟的最大值\n" +
+                    "仅在启用搜索时间调整时生效\n" +
+                    "如果最大值小于最小值，将自动交换",
+                    new AcceptableValueRange<float>(0f, 10f)
+                ),
+                LegacySectionSearch
+            ));
+
+            SearchTimeLevel1 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
                 "品质等级1搜索时间（秒）",
                 1f,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "最低价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
                     new AcceptableValueRange<float>(0.1f, 30f)
-                )
-            );
+                ),
+                LegacySectionSearch
+            ));
 
-            SearchTimeLevel2 = config.Bind(
-                "4.1 搜索设置",
+            SearchTimeLevel2 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
                 "品质等级2搜索时间（秒）",
                 2f,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "较低价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
                     new AcceptableValueRange<float>(0.1f, 30f)
-                )
-            );
+                ),
+                LegacySectionSearch
+            ));
 
-            SearchTimeLevel3 = config.Bind(
-                "4.1 搜索设置",
+            SearchTimeLevel3 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
                 "品质等级3搜索时间（秒）",
                 3f,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "中等价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
                     new AcceptableValueRange<float>(0.1f, 30f)
-                )
-            );
+                ),
+                LegacySectionSearch
+            ));
 
-            SearchTimeLevel4 = config.Bind(
-                "4.1 搜索设置",
+            SearchTimeLevel4 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
                 "品质等级4搜索时间（秒）",
                 4f,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "较高价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
                     new AcceptableValueRange<float>(0.1f, 30f)
-                )
-            );
+                ),
+                LegacySectionSearch
+            ));
 
-            SearchTimeLevel5 = config.Bind(
-                "4.1 搜索设置",
+            SearchTimeLevel5 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
                 "品质等级5搜索时间（秒）",
                 5f,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "高价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
                     new AcceptableValueRange<float>(0.1f, 30f)
-                )
-            );
+                ),
+                LegacySectionSearch
+            ));
 
-            SearchTimeLevel6 = config.Bind(
-                "4.1 搜索设置",
+            SearchTimeLevel6 = RegisterOverrideEntry(BindWithLegacy(
+                config,
+                SectionSearch,
                 "品质等级6搜索时间（秒）",
                 6f,
-                new ConfigDescription(
+                CreateOverrideDescription(
                     "最高价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
                     new AcceptableValueRange<float>(0.1f, 30f)
-                )
-            );
+                ),
+                LegacySectionSearch
+            ));
 
-            // ===== 5. 调试设置 =====
-            EnableDebugLogs = config.Bind(
-                "5. 调试设置",
+            // ===== 7. 调试设置 =====
+            EnableDebugLogs = BindWithLegacy(
+                config,
+                SectionDebug,
                 "启用Debug日志",
                 false,
                 "开启后输出Debug/Warning级别日志（用于排查问题）\n" +
-                "默认关闭以减少客户端日志量"
+                "默认关闭以减少客户端日志量",
+                LegacySectionDebug
             );
 
             ClientLog.SetDebugEnabled(EnableDebugLogs.Value);
@@ -595,6 +778,264 @@ namespace QuickPrice.Config
 
             // 保存配置文件
             _configFile?.Save();
+        }
+
+        public static bool ApplyServerConfigOverrides(ServerClientConfig serverConfig)
+        {
+            if (serverConfig == null)
+                return false;
+
+            _serverConfig = serverConfig;
+            bool overrideEnabled = serverConfig.OverrideClientConfig;
+
+            if (overrideEnabled)
+            {
+                if (!_serverOverrideEnabled)
+                {
+                    CaptureLocalOverrideValues();
+                }
+
+                ApplyOverrideValues(serverConfig);
+            }
+            else if (_serverOverrideEnabled)
+            {
+                RestoreLocalOverrideValues();
+            }
+
+            _serverOverrideEnabled = overrideEnabled;
+            SetOverrideReadOnly(_serverOverrideEnabled);
+            UpdateServerConfigStatus();
+            return _serverOverrideEnabled;
+        }
+
+        public static bool IsServerOverrideEnabled() => _serverOverrideEnabled;
+
+        public static int GetPriceThreshold1() => GetOverrideValue(config => config.PriceThreshold1, PriceThreshold1.Value);
+        public static int GetPriceThreshold2() => GetOverrideValue(config => config.PriceThreshold2, PriceThreshold2.Value);
+        public static int GetPriceThreshold3() => GetOverrideValue(config => config.PriceThreshold3, PriceThreshold3.Value);
+        public static int GetPriceThreshold4() => GetOverrideValue(config => config.PriceThreshold4, PriceThreshold4.Value);
+        public static int GetPriceThreshold5() => GetOverrideValue(config => config.PriceThreshold5, PriceThreshold5.Value);
+
+        public static int GetPenetrationThreshold1() => GetOverrideValue(config => config.PenetrationThreshold1, PenetrationThreshold1.Value);
+        public static int GetPenetrationThreshold2() => GetOverrideValue(config => config.PenetrationThreshold2, PenetrationThreshold2.Value);
+        public static int GetPenetrationThreshold3() => GetOverrideValue(config => config.PenetrationThreshold3, PenetrationThreshold3.Value);
+        public static int GetPenetrationThreshold4() => GetOverrideValue(config => config.PenetrationThreshold4, PenetrationThreshold4.Value);
+        public static int GetPenetrationThreshold5() => GetOverrideValue(config => config.PenetrationThreshold5, PenetrationThreshold5.Value);
+
+        public static bool GetEnableSearchTimeAdjustment() => GetOverrideValue(config => config.EnableSearchTimeAdjustment, EnableSearchTimeAdjustment.Value);
+        public static float GetSearchTimeRandomMin() => GetOverrideValue(config => config.SearchTimeRandomMin, SearchTimeRandomMin.Value);
+        public static float GetSearchTimeRandomMax() => GetOverrideValue(config => config.SearchTimeRandomMax, SearchTimeRandomMax.Value);
+        public static float GetSearchTimeLevel1() => GetOverrideValue(config => config.SearchTimeLevel1, SearchTimeLevel1.Value);
+        public static float GetSearchTimeLevel2() => GetOverrideValue(config => config.SearchTimeLevel2, SearchTimeLevel2.Value);
+        public static float GetSearchTimeLevel3() => GetOverrideValue(config => config.SearchTimeLevel3, SearchTimeLevel3.Value);
+        public static float GetSearchTimeLevel4() => GetOverrideValue(config => config.SearchTimeLevel4, SearchTimeLevel4.Value);
+        public static float GetSearchTimeLevel5() => GetOverrideValue(config => config.SearchTimeLevel5, SearchTimeLevel5.Value);
+        public static float GetSearchTimeLevel6() => GetOverrideValue(config => config.SearchTimeLevel6, SearchTimeLevel6.Value);
+
+        private static ConfigEntry<T> RegisterOverrideEntry<T>(ConfigEntry<T> entry)
+        {
+            if (entry != null && !OverrideEntries.Contains(entry))
+            {
+                OverrideEntries.Add(entry);
+            }
+
+            return entry;
+        }
+
+        private static void CaptureLocalOverrideValues()
+        {
+            if (OverrideLocalValues.Count > 0)
+                return;
+
+            foreach (var entry in OverrideEntries)
+            {
+                OverrideLocalValues[entry] = entry.BoxedValue;
+            }
+        }
+
+        private static void ApplyOverrideValues(ServerClientConfig serverConfig)
+        {
+            if (serverConfig == null)
+                return;
+
+            RunWithoutSaving(() =>
+            {
+                PriceThreshold1.Value = serverConfig.PriceThreshold1;
+                PriceThreshold2.Value = serverConfig.PriceThreshold2;
+                PriceThreshold3.Value = serverConfig.PriceThreshold3;
+                PriceThreshold4.Value = serverConfig.PriceThreshold4;
+                PriceThreshold5.Value = serverConfig.PriceThreshold5;
+
+                PenetrationThreshold1.Value = serverConfig.PenetrationThreshold1;
+                PenetrationThreshold2.Value = serverConfig.PenetrationThreshold2;
+                PenetrationThreshold3.Value = serverConfig.PenetrationThreshold3;
+                PenetrationThreshold4.Value = serverConfig.PenetrationThreshold4;
+                PenetrationThreshold5.Value = serverConfig.PenetrationThreshold5;
+
+                EnableSearchTimeAdjustment.Value = serverConfig.EnableSearchTimeAdjustment;
+                SearchTimeRandomMin.Value = serverConfig.SearchTimeRandomMin;
+                SearchTimeRandomMax.Value = serverConfig.SearchTimeRandomMax;
+                SearchTimeLevel1.Value = serverConfig.SearchTimeLevel1;
+                SearchTimeLevel2.Value = serverConfig.SearchTimeLevel2;
+                SearchTimeLevel3.Value = serverConfig.SearchTimeLevel3;
+                SearchTimeLevel4.Value = serverConfig.SearchTimeLevel4;
+                SearchTimeLevel5.Value = serverConfig.SearchTimeLevel5;
+                SearchTimeLevel6.Value = serverConfig.SearchTimeLevel6;
+            });
+        }
+
+        private static void RestoreLocalOverrideValues()
+        {
+            if (OverrideLocalValues.Count == 0)
+                return;
+
+            RunWithoutSaving(() =>
+            {
+                foreach (var entry in OverrideLocalValues)
+                {
+                    entry.Key.BoxedValue = entry.Value;
+                }
+            });
+
+            OverrideLocalValues.Clear();
+        }
+
+        private static void SetOverrideReadOnly(bool readOnly)
+        {
+            ServerOverrideAttributes.ReadOnly = readOnly;
+        }
+
+        private static ConfigEntry<T> BindWithLegacy<T>(
+            ConfigFile config,
+            string section,
+            string key,
+            T defaultValue,
+            string description,
+            params string[] legacySections)
+        {
+            return BindWithLegacy(config, section, key, defaultValue, new ConfigDescription(description), legacySections);
+        }
+
+        private static ConfigEntry<T> BindWithLegacy<T>(
+            ConfigFile config,
+            string section,
+            string key,
+            T defaultValue,
+            ConfigDescription description,
+            params string[] legacySections)
+        {
+            var entry = config.Bind(section, key, defaultValue, description);
+
+            if (legacySections == null || legacySections.Length == 0)
+                return entry;
+
+            foreach (var legacySection in legacySections)
+            {
+                if (string.IsNullOrWhiteSpace(legacySection))
+                    continue;
+
+                if (TryGetLegacyValue(config, legacySection, key, out T legacyValue) &&
+                    EqualityComparer<T>.Default.Equals(entry.Value, defaultValue))
+                {
+                    SetEntryValueWithoutSaving(entry, legacyValue);
+                    break;
+                }
+            }
+
+            return entry;
+        }
+
+        private static ConfigDescription CreateStatusDescription(string description)
+        {
+            return new ConfigDescription(description, null, new object[] { StatusReadOnlyAttributes });
+        }
+
+        private static ConfigDescription CreateOverrideDescription(string description, AcceptableValueBase acceptableValues = null)
+        {
+            return new ConfigDescription(description, acceptableValues, new object[] { ServerOverrideAttributes });
+        }
+
+        private static void RunWithoutSaving(Action action)
+        {
+            if (_configFile == null)
+            {
+                action();
+                return;
+            }
+
+            bool previous = _configFile.SaveOnConfigSet;
+            _configFile.SaveOnConfigSet = false;
+            try
+            {
+                action();
+            }
+            finally
+            {
+                _configFile.SaveOnConfigSet = previous;
+            }
+        }
+
+        private static void SetEntryValueWithoutSaving<T>(ConfigEntry<T> entry, T value)
+        {
+            if (entry == null)
+                return;
+
+            RunWithoutSaving(() => entry.Value = value);
+        }
+
+        private static bool TryGetLegacyValue<T>(ConfigFile config, string section, string key, out T value)
+        {
+            value = default;
+            if (config == null)
+                return false;
+
+            try
+            {
+                var method = typeof(ConfigFile).GetMethod(
+                    "TryGetEntry",
+                    new[] { typeof(ConfigDefinition), typeof(ConfigEntryBase).MakeByRefType() });
+
+                if (method == null)
+                    return false;
+
+                object[] args = { new ConfigDefinition(section, key), null };
+                bool success = (bool)method.Invoke(config, args);
+                if (!success || args[1] == null)
+                    return false;
+
+                if (args[1] is ConfigEntry<T> typedEntry)
+                {
+                    value = typedEntry.Value;
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
+        }
+
+        private static T GetOverrideValue<T>(Func<ServerClientConfig, T> serverAccessor, T localValue)
+        {
+            if (_serverOverrideEnabled && _serverConfig != null)
+                return serverAccessor(_serverConfig);
+
+            return localValue;
+        }
+
+        private static void UpdateServerConfigStatus()
+        {
+            if (ServerConfigStatus == null)
+                return;
+
+            SetEntryValueWithoutSaving(
+                ServerConfigStatus,
+                _serverOverrideEnabled
+                    ? "正在使用服务器参数（本地配置已保留）"
+                    : "使用本地配置"
+            );
         }
     }
 }

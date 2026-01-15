@@ -21,11 +21,11 @@ namespace QuickPrice.Utils
         /// </summary>
         public static string GetColorForPenetration(int penetration)
         {
-            if (penetration < Settings.PenetrationThreshold1.Value) return COLOR_WHITE;
-            if (penetration < Settings.PenetrationThreshold2.Value) return COLOR_GREEN;
-            if (penetration < Settings.PenetrationThreshold3.Value) return COLOR_BLUE;
-            if (penetration < Settings.PenetrationThreshold4.Value) return COLOR_PURPLE;
-            if (penetration < Settings.PenetrationThreshold5.Value) return COLOR_ORANGE;
+            if (penetration < Settings.GetPenetrationThreshold1()) return COLOR_WHITE;
+            if (penetration < Settings.GetPenetrationThreshold2()) return COLOR_GREEN;
+            if (penetration < Settings.GetPenetrationThreshold3()) return COLOR_BLUE;
+            if (penetration < Settings.GetPenetrationThreshold4()) return COLOR_PURPLE;
+            if (penetration < Settings.GetPenetrationThreshold5()) return COLOR_ORANGE;
             return COLOR_RED;
         }
 

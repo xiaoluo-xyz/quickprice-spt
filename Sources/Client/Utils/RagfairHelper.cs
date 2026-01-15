@@ -65,10 +65,16 @@ namespace QuickPrice.Utils
         /// 检查物品是否可以在跳蚤市场上出售（用于显示价格判断）
         /// </summary>
         /// <param name="item">要检查的物品</param>
-        /// <returns>true = 显示跳蚤价格（禁售时追加标签）</returns>
+        /// <returns>true = 显示跳蚤价格，false = 禁售时隐藏跳蚤价格</returns>
         public static bool ShouldShowRagfairPrice(Item item)
         {
-            // 禁售也显示价格，仅追加禁售标签
+            var canSell = CanSellOnRagfair(item);
+            if (canSell.HasValue)
+            {
+                return canSell.Value;
+            }
+
+            // 数据未加载时默认显示
             return true;
         }
     }

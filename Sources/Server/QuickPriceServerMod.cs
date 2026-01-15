@@ -1,4 +1,4 @@
-// ----------------------------------------------------------------------------
+﻿// ----------------------------------------------------------------------------
 // QuickPrice - SPT 4.0.0 Server Mod
 // 为客户端BepInEx插件提供价格数据的服务端模组
 // ----------------------------------------------------------------------------
@@ -34,6 +34,34 @@ namespace QuickPrice.Server
             _staticRouter = staticRouter;
         }
 
+        private void LogDebug(string message, Exception? ex = null)
+        {
+            if (!ServerLogControl.Allows(ServerLogLevel.Debug))
+                return;
+            _logger.Debug(message, ex);
+        }
+
+        private void LogInfo(string message, Exception? ex = null)
+        {
+            if (!ServerLogControl.Allows(ServerLogLevel.Info))
+                return;
+            _logger.Info(message, ex);
+        }
+
+        private void LogSuccess(string message, Exception? ex = null)
+        {
+            if (!ServerLogControl.Allows(ServerLogLevel.Info))
+                return;
+            _logger.Success(message, ex);
+        }
+
+        private void LogError(string message, Exception? ex = null)
+        {
+            if (!ServerLogControl.Allows(ServerLogLevel.Error))
+                return;
+            _logger.Error(message, ex);
+        }
+
         /// <summary>
         /// 实现IPreSptLoadModAsync接口的核心方法
         /// 在SPT服务器启动的早期阶段被自动调用
@@ -42,7 +70,7 @@ namespace QuickPrice.Server
         {
             try
             {
-                _logger.Info("[QuickPrice v1.3.1] Server mod loading...", null);
+                LogInfo("[QuickPrice v1.3.1] 服务端模组加载中...", null);
 
                 // 路由已通过依赖注入自动注册
                 // QuickPriceStaticRouter 在构造时自动注册以下端点：
@@ -52,14 +80,14 @@ namespace QuickPrice.Server
                 // 4. /showMeTheMoney/getTraderBuybackPriceTable
                 // 5. /showMeTheMoney/getRagfairBannedItems
 
-                _logger.Success("[QuickPrice v1.3.1] Server mod loaded successfully. Ready to make some money...", null);
-                _logger.Info("[QuickPrice] HTTP routes registered successfully", null);
+                LogSuccess("[QuickPrice v1.3.1] 服务端模组加载完成，准备就绪", null);
+                LogInfo("[QuickPrice] HTTP 路由注册完成", null);
             }
             catch (Exception ex)
             {
                 try
                 {
-                    _logger.Error("[QuickPrice] PreSptLoadAsync方法发生异常", ex);
+                    LogError("[QuickPrice] PreSptLoadAsync方法发生异常", ex);
                 }
                 catch
                 {
@@ -100,7 +128,7 @@ namespace QuickPrice.Server
                 // var skier = _databaseService.GetTrader("58330581ace78e27b8b10cee");
 
                 // 暂时返回默认值
-                _logger.Debug("[QuickPrice] Currency prices - EUR: 153, USD: 139", null);
+                LogDebug("[QuickPrice] 货币价格 - EUR: 153, USD: 139", null);
 
                 return new CurrencyPurchasePrices
                 {
@@ -110,7 +138,7 @@ namespace QuickPrice.Server
             }
             catch (Exception ex)
             {
-                _logger.Error($"[QuickPrice] Error getting currency purchase prices: {ex.Message}", ex);
+                LogError($"[QuickPrice] 获取货币购买价格失败: {ex.Message}", ex);
                 return new CurrencyPurchasePrices { Eur = 153, Usd = 139 };
             }
         }
@@ -125,13 +153,13 @@ namespace QuickPrice.Server
                 // TODO: 需要确认4.0.0中数据库访问的正确API
                 var clonedPriceTable = new Dictionary<string, double>();
 
-                _logger.Info($"[QuickPrice] Generated static price table with {clonedPriceTable.Count} items", null);
+                LogInfo($"[QuickPrice] 已生成静态价格表，共 {clonedPriceTable.Count} 个物品", null);
 
                 return clonedPriceTable;
             }
             catch (Exception ex)
             {
-                _logger.Error($"[QuickPrice] Error getting static price table: {ex.Message}", ex);
+                LogError($"[QuickPrice] 获取静态价格表失败: {ex.Message}", ex);
                 return new Dictionary<string, double>();
             }
         }
@@ -145,13 +173,13 @@ namespace QuickPrice.Server
             {
                 var priceTable = GetStaticPriceTable();
 
-                _logger.Info($"[QuickPrice] Generated dynamic price table with {priceTable.Count} items", null);
+                LogInfo($"[QuickPrice] 已生成动态价格表，共 {priceTable.Count} 个物品", null);
 
                 return priceTable;
             }
             catch (Exception ex)
             {
-                _logger.Error($"[QuickPrice] Error getting dynamic price table: {ex.Message}", ex);
+                LogError($"[QuickPrice] 获取动态价格表失败: {ex.Message}", ex);
                 return GetStaticPriceTable();
             }
         }
@@ -176,3 +204,4 @@ namespace QuickPrice.Server
 
     #endregion
 }
+

@@ -69,6 +69,8 @@
 2. 重启 SPT 服务器
 3. 在客户端配置中启用"使用动态价格"（按 F12）
 
+更多服务端配置说明见 [QuickPrice.Server.Config.md](QuickPrice.Server.Config.md)。
+
 ---
 
 ## 🎮 使用方法

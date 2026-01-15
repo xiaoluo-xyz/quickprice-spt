@@ -419,6 +419,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n{totalPriceText}");
             }
 
+            AppendRagfairBanLineIfNeeded(sb, weapon, showRagfairPrice);
+
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, weapon);
 
@@ -530,6 +532,18 @@ namespace QuickPrice.Patches
                 return priceText;
 
             return $"{priceText}{label}";
+        }
+
+        private static void AppendRagfairBanLineIfNeeded(StringBuilder sb, Item item, bool showRagfairPrice)
+        {
+            if (showRagfairPrice)
+                return;
+
+            var label = RagfairHelper.GetRagfairBanLabel(item);
+            if (string.IsNullOrEmpty(label))
+                return;
+
+            sb.Append($"\n{label.TrimStart()}");
         }
 
         /// <summary>
@@ -670,6 +684,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n{priceText}");
             }
 
+            AppendRagfairBanLineIfNeeded(sb, item, showRagfairPrice);
+
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, item);
 
@@ -725,6 +741,8 @@ namespace QuickPrice.Patches
                 // 显示单价
                 sb.Append($"\n单价: {TextFormatting.FormatPrice(unitPrice.Value)}");
             }
+
+            AppendRagfairBanLineIfNeeded(sb, item, showRagfairPrice);
 
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, item);
@@ -853,6 +871,8 @@ namespace QuickPrice.Patches
                 }
                 sb.Append($"\n{totalPriceText}");
             }
+
+            AppendRagfairBanLineIfNeeded(sb, ammoBox, showRagfairPrice);
 
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, ammoBox);
@@ -1060,6 +1080,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n{totalPriceText}");
             }
 
+            AppendRagfairBanLineIfNeeded(sb, magazine, showRagfairPrice);
+
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, magazine);
 
@@ -1151,6 +1173,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n{priceText}");
             }
 
+            AppendRagfairBanLineIfNeeded(sb, ammoItem, showRagfairPrice);
+
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, ammoItem);
 
@@ -1205,6 +1229,8 @@ namespace QuickPrice.Patches
                 }
                 sb.Append($"\n{priceText}");
             }
+
+            AppendRagfairBanLineIfNeeded(sb, armor, showRagfairPrice);
 
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, armor);
@@ -1289,6 +1315,8 @@ namespace QuickPrice.Patches
                 }
                 sb.Append($"\n{priceText}");
             }
+
+            AppendRagfairBanLineIfNeeded(sb, plate, showRagfairPrice);
 
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, plate);
@@ -1381,6 +1409,8 @@ namespace QuickPrice.Patches
                 }
                 sb.Append($"\n{totalPriceText}");
             }
+
+            AppendRagfairBanLineIfNeeded(sb, mod, showRagfairPrice);
 
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, mod);
@@ -1592,6 +1622,8 @@ namespace QuickPrice.Patches
                     sb.Append($"\n{containerPriceText}");
                 }
 
+                AppendRagfairBanLineIfNeeded(sb, container, showRagfairPrice);
+
                 // 显示商人回收价格（单独一行）
                 AppendTraderPriceIfEnabled(sb, container);
 
@@ -1637,6 +1669,8 @@ namespace QuickPrice.Patches
                     }
                     sb.Append($"\n{containerPriceText}");
                 }
+
+                AppendRagfairBanLineIfNeeded(sb, container, showRagfairPrice);
 
                 // 显示商人回收价格（单独一行）
                 AppendTraderPriceIfEnabled(sb, container);
@@ -1684,6 +1718,8 @@ namespace QuickPrice.Patches
                 }
                 sb.Append($"\n{totalPriceText}");
             }
+
+            AppendRagfairBanLineIfNeeded(sb, container, showRagfairPrice);
 
             // 显示商人回收价格（单独一行）
             AppendTraderPriceIfEnabled(sb, container);

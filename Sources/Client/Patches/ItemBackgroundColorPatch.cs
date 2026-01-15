@@ -67,19 +67,19 @@ namespace QuickPrice.Patches
         /// <returns>对应的 TaxonomyColor</returns>
         private static TaxonomyColor GetBackgroundColorByPricePerSlot(double pricePerSlot)
         {
-            if (pricePerSlot <= Settings.PriceThreshold1.Value)
+            if (pricePerSlot <= Settings.GetPriceThreshold1())
                 return CustomColors.LightGray;      // 浅灰色 - 最低价值
 
-            if (pricePerSlot <= Settings.PriceThreshold2.Value)
+            if (pricePerSlot <= Settings.GetPriceThreshold2())
                 return CustomColors.LightGreen;     // 浅绿色 - 低价值
 
-            if (pricePerSlot <= Settings.PriceThreshold3.Value)
+            if (pricePerSlot <= Settings.GetPriceThreshold3())
                 return CustomColors.LightBlue;      // 天蓝色 - 中等价值
 
-            if (pricePerSlot <= Settings.PriceThreshold4.Value)
+            if (pricePerSlot <= Settings.GetPriceThreshold4())
                 return CustomColors.LightPurple;    // 兰花紫 - 较高价值
 
-            if (pricePerSlot <= Settings.PriceThreshold5.Value)
+            if (pricePerSlot <= Settings.GetPriceThreshold5())
                 return CustomColors.LightOrange;    // 橙色 - 高价值
 
             return CustomColors.LightRed;           // 番茄红 - 最高价值
@@ -92,19 +92,19 @@ namespace QuickPrice.Patches
         /// <returns>对应的 TaxonomyColor</returns>
         private static TaxonomyColor GetBackgroundColorByPenetration(int penetration)
         {
-            if (penetration < Settings.PenetrationThreshold1.Value)
+            if (penetration < Settings.GetPenetrationThreshold1())
                 return CustomColors.Ammo_Level1;    // 浅灰色 - 1-2级穿甲
 
-            if (penetration < Settings.PenetrationThreshold2.Value)
+            if (penetration < Settings.GetPenetrationThreshold2())
                 return CustomColors.Ammo_Level3;    // 浅绿色 - 3级穿甲
 
-            if (penetration < Settings.PenetrationThreshold3.Value)
+            if (penetration < Settings.GetPenetrationThreshold3())
                 return CustomColors.Ammo_Level4;    // 天蓝色 - 4级穿甲
 
-            if (penetration < Settings.PenetrationThreshold4.Value)
+            if (penetration < Settings.GetPenetrationThreshold4())
                 return CustomColors.Ammo_Level5;    // 兰花紫 - 5级穿甲
 
-            if (penetration < Settings.PenetrationThreshold5.Value)
+            if (penetration < Settings.GetPenetrationThreshold5())
                 return CustomColors.Ammo_Level6;    // 橙色 - 6级穿甲
 
             return CustomColors.Ammo_Level7;        // 番茄红 - 7级+穿甲

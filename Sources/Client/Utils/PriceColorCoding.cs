@@ -21,11 +21,11 @@ namespace QuickPrice.Utils
         /// </summary>
         public static string GetColorForPrice(double price)
         {
-            if (price <= Settings.PriceThreshold1.Value) return COLOR_WHITE;
-            if (price <= Settings.PriceThreshold2.Value) return COLOR_GREEN;
-            if (price <= Settings.PriceThreshold3.Value) return COLOR_BLUE;
-            if (price <= Settings.PriceThreshold4.Value) return COLOR_PURPLE;
-            if (price <= Settings.PriceThreshold5.Value) return COLOR_ORANGE;
+            if (price <= Settings.GetPriceThreshold1()) return COLOR_WHITE;
+            if (price <= Settings.GetPriceThreshold2()) return COLOR_GREEN;
+            if (price <= Settings.GetPriceThreshold3()) return COLOR_BLUE;
+            if (price <= Settings.GetPriceThreshold4()) return COLOR_PURPLE;
+            if (price <= Settings.GetPriceThreshold5()) return COLOR_ORANGE;
             return COLOR_RED;
         }
 
@@ -61,19 +61,19 @@ namespace QuickPrice.Utils
         public static TaxonomyColor GetBackgroundColorForPrice(double price)
         {
             // 使用配置的价格阈值来决定颜色等级
-            if (price <= Settings.PriceThreshold1.Value)
+            if (price <= Settings.GetPriceThreshold1())
                 return TaxonomyColor.@default;      // 白色 (≤ 3,000)
 
-            if (price <= Settings.PriceThreshold2.Value)
+            if (price <= Settings.GetPriceThreshold2())
                 return TaxonomyColor.green;         // 绿色 (≤ 10,000)
 
-            if (price <= Settings.PriceThreshold3.Value)
+            if (price <= Settings.GetPriceThreshold3())
                 return TaxonomyColor.blue;          // 蓝色 (≤ 20,000)
 
-            if (price <= Settings.PriceThreshold4.Value)
+            if (price <= Settings.GetPriceThreshold4())
                 return TaxonomyColor.violet;        // 紫色 (≤ 50,000)
 
-            if (price <= Settings.PriceThreshold5.Value)
+            if (price <= Settings.GetPriceThreshold5())
                 return TaxonomyColor.orange;        // 橙色 (≤ 100,000)
 
             return TaxonomyColor.red;               // 红色 (> 100,000)

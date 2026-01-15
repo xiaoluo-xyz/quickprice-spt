@@ -49,6 +49,7 @@ copy /Y "%REPO_DIR%Sources\Client\bin\Release\net471\QuickPrice.dll" "%CLIENT_TA
 copy /Y "%REPO_DIR%Sources\Server\bin\Release\quickprice.dll" "%SERVER_TARGET%\" >nul
 copy /Y "%REPO_DIR%Sources\Server\bin\Release\mod.json" "%SERVER_TARGET%\" >nul
 copy /Y "%REPO_DIR%Sources\Server\bin\Release\config.json" "%SERVER_TARGET%\" >nul
+copy /Y "%REPO_DIR%Sources\Server\bin\Release\ragfair_ban_blacklist.json" "%SERVER_TARGET%\" >nul
 
 (
   echo QuickPrice v%VERSION%
@@ -57,7 +58,7 @@ copy /Y "%REPO_DIR%Sources\Server\bin\Release\config.json" "%SERVER_TARGET%\" >n
   echo - Copy QuickPrice.dll to BepInEx\plugins\QuickPrice\
   echo.
   echo Server:
-  echo - Copy quickprice.dll, mod.json, config.json to SPT\user\mods\QuickPrice\
+  echo - Copy quickprice.dll, mod.json, config.json, ragfair_ban_blacklist.json to SPT\user\mods\QuickPrice\
 ) > "%RELEASE_DIR%\README.txt"
 
 set "ZIP_PATH=%REPO_DIR%Release\QuickPrice-v%VERSION%.zip"
