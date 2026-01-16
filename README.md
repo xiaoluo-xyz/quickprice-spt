@@ -16,15 +16,16 @@
 
 ### ✨ Key Features
 
-- 💰 **Real-time Price Display** - Shows flea market and trader prices on item hover
-- 🎨 **Color-Coded Items** - Six-tier color system based on item value
-- 🔫 **Weapon Mod Pricing** - Calculates total value including all attachments
-- 🛡️ **Armor Class Coloring** - Visual armor tier indicators (1-6)
-- 🎯 **Ammo Penetration Display** - Color-coded by penetration power
-- 📊 **Price-per-Slot** - See value density for optimal looting
-- 🏪 **Trader Comparison** - Compare flea vs. best trader buyback prices
-- ⚡ **Performance Optimized** - Smart container calculation with configurable limits
-- 🌐 **Fully Chinese Localized** - Complete Chinese UI and configuration
+- 💰 **Real-time Price Display** - Shows flea and trader prices with banned-item source control
+- 🎨 **Color-Coded Items** - Six-tier value colors with optional inventory background coloring
+- 🔫 **Weapon Mod Pricing** - Calculates total value including all attachments and details
+- 🛡️ **Armor & Ammo Indicators** - Armor class and ammo penetration coloring with extra stats
+- 📊 **Value Density** - Price-per-slot and stack unit-price thresholds to avoid inflated totals
+- 🧭 **Ground Loot Labels** - In-raid item names show price and value coloring
+- 📈 **Raid Summary Overlay** - Brought/loss/loot/settlement tracking with K-unit formatting
+- 🔊 **Search Sound & Time** - Custom search audio and six-tier duration presets (per-tier toggles)
+- ⚡ **Dynamic Price Cache** - Auto refresh on stash open plus manual refresh hotkey (F10)
+- 🧩 **Server Module Enhancements** - Hot-reloadable config, ragfair blacklist, trader buyback cache
 
 ---
 
@@ -41,6 +42,26 @@
 ### Inventory Overview
 ![Inventory Overview](Docs/Screenshots/inventory-overview.png)
 *Mixed item types including weapons, ammo, and containers with price information*
+
+### Weapon Mod Price Breakdown
+![Weapon Mod Breakdown](Docs/Screenshots/QQ图片20260117042730.png)
+*Detailed attachment tree with flea/trader pricing and total breakdown*
+
+### Raid Summary Overlay
+![Raid Summary Overlay](Docs/Screenshots/QQ图片20260117042827.png)
+*In-raid brought/loss/loot/settlement overlay at the bottom of the HUD*
+
+### Raid Settlement Result
+![Raid Settlement Result](Docs/Screenshots/QQ图片20260117043233.png)
+*Post-raid summary view with settlement value shown*
+
+### Raid Summary Settings
+![Raid Summary Settings](Docs/Screenshots/QQ图片20260117042833.png)
+*Raid summary options in the F12 configuration manager*
+
+### Search Sound & Time Settings
+![Search Settings](Docs/Screenshots/QQ图片20260117042836.png)
+*Per-tier search sound and duration presets in configuration*
 
 ---
 
@@ -75,30 +96,31 @@
 
 ### Basic Controls
 
-- **Hold Ctrl** - Press and hold `Left Ctrl` or `Right Ctrl` while hovering over items to see prices
-  - Can be disabled in config to show prices on hover without Ctrl
+- **Hover to View Prices** - Prices show on hover by default
+- **Optional Ctrl Requirement** - Enable in config to require `Left Ctrl` or `Right Ctrl`
+- **Manual Refresh** - Press `F10` to refresh dynamic prices (configurable)
 
 ### Color Coding System
 
 #### Price-Based Colors (Default Items)
 | Color | Price Range | Indicator |
 |-------|-------------|-----------|
-| ⚪ White | ≤ 5,000₽ | Common items |
-| 🟢 Green | 5,001 - 18,000₽ | Low value |
-| 🔵 Blue | 18,001 - 35,000₽ | Medium value |
-| 🟣 Purple | 35,001 - 70,000₽ | High value |
-| 🟠 Orange | 70,001 - 180,000₽ | Very high value |
-| 🔴 Red | > 180,000₽ | Extremely valuable |
+| ⚪ White | ≤ 25,000₽ | Common items |
+| 🟢 Green | 25,001 - 45,000₽ | Low value |
+| 🔵 Blue | 45,001 - 70,000₽ | Medium value |
+| 🟣 Purple | 70,001 - 100,000₽ | High value |
+| 🟠 Orange | 100,001 - 250,000₽ | Very high value |
+| 🔴 Red | > 250,000₽ | Extremely valuable |
 
 #### Penetration-Based Colors (Ammo & Magazines)
 | Color | Penetration | Effectiveness |
 |-------|-------------|---------------|
-| ⚪ White | < 15 | Low penetration |
-| 🟢 Green | 15 - 24 | Light armor |
-| 🔵 Blue | 25 - 34 | Medium armor |
-| 🟣 Purple | 35 - 44 | Heavy armor |
-| 🟠 Orange | 45 - 54 | Class 5 armor |
-| 🔴 Red | ≥ 55 | Class 6 armor |
+| ⚪ White | < 20 | Low penetration |
+| 🟢 Green | 20 - 29 | Light armor |
+| 🔵 Blue | 30 - 39 | Medium armor |
+| 🟣 Purple | 40 - 49 | Heavy armor |
+| 🟠 Orange | 50 - 59 | Class 5 armor |
+| 🔴 Red | ≥ 60 | Class 6 armor |
 
 #### Armor Class Colors
 | Color | Armor Class | Protection Level |
@@ -114,44 +136,66 @@
 
 Press **F12** in-game to open BepInEx Configuration Manager and customize:
 
-- Toggle price display (Ctrl required or always-on)
-- Adjust color thresholds for each tier
-- Enable/disable specific features
+- Toggle price display behavior (hover vs. Ctrl)
+- Select price sources, banned-item behavior, and K-unit formatting
+- Configure search sound/time presets and per-tier toggles
+- Tune raid summary options (brought/loss, non-FIR pricing)
+- Manage cache mode, auto refresh, and the manual refresh key
 - Performance tuning for large containers
-- Cache mode selection
 
 ---
 
 ## ⚙️ Configuration Options
 
-### Main Settings
+### Price Display
 - **Enable Plugin** - Master toggle
-- **Show Flea Prices** - Display flea market values
-- **Show Price Per Slot** - Calculate value density
-- **Show Weapon Mods Price** - Include attachment values
-- **Require Ctrl Key** - Hold Ctrl to show prices (default: enabled)
-- **Tooltip Delay** - Hover delay before showing prices (0-2 seconds)
-- **Show Tooltip Underline** - Draw an underline separator beneath the item name
+- **Show Flea/Trader Prices** - Toggle each price source
+- **Hide Flea Price for Non-FIR** - Optional suppression for non-FIR items
+- **Banned Item Price Source** - Default / Flea / Trader
+- **Show Flea Tax** - Listing fee and net profit display
+- **Show Best Price in Bold** - Emphasize the highest price line
+- **Show Price Per Slot** - Value density calculation
+- **Weapon Mod Pricing** - Include attachments and optional detailed breakdown
+- **Use K-Unit Display** - Format prices ≥ 10,000 as ₽10k
+- **Stack Unit-Price Threshold** - Show unit price for large stacks
 
-### Display Settings
-- **Enable Color Coding** - Color items by value/penetration
-- **Show Best Price in Bold** - Highlight highest price
-- **Use Caliber Penetration Power** - Color ammo by penetration instead of price
-- **Color Item Name** - Apply colors to item names in tooltips
-- **Enable Armor Class Coloring** - Color armor by protection level
-- **Auto-color Item Backgrounds** - Apply colors to inventory grid (experimental)
+### Interaction & Tooltip
+- **Require Ctrl Key** - Optional hover gating
+- **Tooltip Delay** - 0–2 seconds
+- **Disable Tooltip Width Limit** - Prevent forced line wrapping
+- **Show Tooltip Separator** - Underline below the item name
 
-### Performance Settings
-- **Use Dynamic Prices** - Fetch real-time flea market prices (slower)
-- **Price Cache Mode** - Permanent / 5min / 10min / Manual refresh
-- **Max Container Depth** - Recursion limit for nested containers (default: 10)
-- **Max Container Items** - Item limit per container (default: 100)
-- **Skip Large Containers** - Skip calculation for containers with 150+ items
+### Colors & Ground Loot
+- **Enable Color Coding** - Price/penetration-based colors
+- **Use Caliber Penetration Power** - Ammo uses penetration thresholds
+- **Color Item Name** - Apply colors to tooltip item names
+- **Enable Background Coloring** - Color inventory slots (experimental)
+- **Show Ground Item Price** - In-raid ground label price (requires name coloring)
+- **Armor Class Coloring** - Color armor by class and show class text
+- **Reset Thresholds Button** - Reset price/penetration thresholds in the F12 manager
 
-### Advanced Features
-- **Show Trader Prices** - Display best trader buyback offers
-- **Show Flea Tax** - Calculate listing fees and net profit
-- **Auto Refresh on Open Inventory** - Refresh prices when opening stash
+### Cache & Refresh
+- **Use Dynamic Prices** - Fetch flea prices from the server module
+- **Price Cache Mode** - Permanent / 5min / 10min / Manual
+- **Auto Refresh on Open Inventory** - Background refresh when cache expires
+- **Manual Refresh Key** - Default `F10`
+
+### Raid Summary
+- **Brought/Loss in Raid** - Show brought/loss values in-raid
+- **Exclude Items** - Secure container, knife, armband, dogtag, special slots
+- **Use Trader Price for Non-FIR** - Raid summary calculations
+- **Use K-Unit in Raid Summary** - Compact formatting
+- **Durability Loss** - Include weapon/armor durability and repair multipliers
+
+### Search Settings
+- **Enable Search Sound** - Custom audio by value tier (levels 1–6)
+- **Per-Tier Sound Toggles** - Disable specific levels if needed
+- **Enable Search Time Adjustment** - Override search time by tier
+- **Random Delay** - Min/Max random offset
+- **Per-Tier Durations** - Level 1–6 time presets
+
+### Debug
+- **Client Log Gating** - Control Debug/Warn output
 
 ---
 
@@ -186,15 +230,15 @@ Output: `bin/Release/quickprice.dll`
 
 QuickPrice includes intelligent performance optimizations:
 
-- **Smart Container Calculation** - Limits recursion depth and item count
+- **Smart Container Calculation** - Limits recursion depth and item count (can be disabled)
 - **Async Price Loading** - Non-blocking background updates
 - **Efficient Caching** - Configurable cache expiration
-- **Large Container Skipping** - Avoids lag on item boxes with 150+ items
+- **Large Container Skipping** - Avoids lag on item boxes above the configured threshold
 
 Default limits (recommended):
 - Max recursion depth: **10 layers**
 - Max items per container: **100 items**
-- Large container threshold: **150 items**
+- Large container threshold: **50 items**
 
 ---
 
@@ -213,11 +257,11 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 ## 📝 Changelog
 
 ### Version 2.0.0 (2026-01-13)
-- Added client log gating for debug/warn output and improved debug toggle behavior
-- Added search sound/time settings with six-tier duration presets (SearchPatch merge)
-- Added server reloadable config (Enable/CacheTimeout/AutoRefresh) with disable flow
-- Aggregated ragfair offers during cache refresh and logged refresh duration
-- Loaded ragfair dynamic blacklist after init and added SptDir/XML doc updates
+- Added client log gating and server-config sync controls
+- Added search sound system and six-tier search time presets
+- Added raid summary tracking/overlay and non-FIR pricing options
+- Added trader buyback cache, ragfair blacklist support, and aggregated refresh logging
+- Improved tooltip/ground label display (K-unit formatting, separators, banned item price source)
 
 ### Version 1.0.0 (2025-10-21)
 - Initial release
