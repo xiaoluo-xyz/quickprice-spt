@@ -823,45 +823,68 @@ namespace QuickPrice.Server
                                 return;
                             }
 
-                            foreach (var offer in offers)
+                            for (int attempt = 1; attempt <= 3; attempt++)
                             {
                                 try
                                 {
-                                    if (offer?.User?.Id == null)
+                                    foreach (var offer in offers.ToList())
                                     {
-                                        continue;
+                                        try
+                                        {
+                                            if (offer?.User?.Id == null)
+                                            {
+                                                continue;
+                                            }
+
+                                            if (!offer.RequirementsCost.HasValue || offer.RequirementsCost.Value <= 0)
+                                            {
+                                                continue;
+                                            }
+
+                                            var rootItem = offer.Items?.FirstOrDefault(i => i.Id == offer.Root);
+                                            if (rootItem == null)
+                                            {
+                                                continue;
+                                            }
+
+                                            var templateId = rootItem.Template.ToString();
+                                            if (string.IsNullOrEmpty(templateId) || !validTemplates.Contains(templateId))
+                                            {
+                                                continue;
+                                            }
+
+                                            var cost = (double)offer.RequirementsCost.Value;
+                                            if (aggregated.TryGetValue(templateId, out var acc))
+                                            {
+                                                aggregated[templateId] = (acc.Sum + cost, acc.Count + 1);
+                                            }
+                                            else
+                                            {
+                                                aggregated[templateId] = (cost, 1);
+                                            }
+                                        }
+                                        catch
+                                        {
+                                            // 某个报价解析失败，继续处理其他报价
+                                        }
                                     }
 
-                                    if (!offer.RequirementsCost.HasValue || offer.RequirementsCost.Value <= 0)
-                                    {
-                                        continue;
-                                    }
-
-                                    var rootItem = offer.Items?.FirstOrDefault(i => i.Id == offer.Root);
-                                    if (rootItem == null)
-                                    {
-                                        continue;
-                                    }
-
-                                    var templateId = rootItem.Template.ToString();
-                                    if (string.IsNullOrEmpty(templateId) || !validTemplates.Contains(templateId))
-                                    {
-                                        continue;
-                                    }
-
-                                    var cost = (double)offer.RequirementsCost.Value;
-                                    if (aggregated.TryGetValue(templateId, out var acc))
-                                    {
-                                        aggregated[templateId] = (acc.Sum + cost, acc.Count + 1);
-                                    }
-                                    else
-                                    {
-                                        aggregated[templateId] = (cost, 1);
-                                    }
+                                    return;
                                 }
-                                catch
+                                catch (InvalidOperationException ex)
                                 {
-                                    // 某个报价解析失败，继续处理其他报价
+                                    if (attempt >= 3)
+                                    {
+                                        LogWarning("[QuickPrice] 读取跳蚤市场报价时检测到集合正在修改，跳过本次更新", ex);
+                                        return;
+                                    }
+
+                                    System.Threading.Thread.Sleep(50 * attempt);
+                                }
+                                catch (Exception ex)
+                                {
+                                    LogWarning($"[QuickPrice] 读取跳蚤市场报价失败: {ex.Message}", ex);
+                                    return;
                                 }
                             }
                         });
@@ -1125,6 +1148,8 @@ namespace QuickPrice.Server
                 // 如果间隔为0，则禁用自动刷新
                 if (intervalSeconds <= 0)
                 {
+                    _autoRefreshTimer?.Dispose();
+                    _autoRefreshTimer = null;
                     LogInfo("[QuickPrice] 自动刷新已禁用 (配置间隔为0)", null);
                     return;
                 }

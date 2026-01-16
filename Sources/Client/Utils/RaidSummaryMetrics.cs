@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using QuickPrice.Config;
 
 namespace QuickPrice.Utils
 {
@@ -125,9 +126,18 @@ namespace QuickPrice.Utils
         public static string FormatRuble(long value)
         {
             long absValue = Math.Abs(value);
+            bool useKUnit = Settings.UseKUnitInRaidSummary != null && Settings.UseKUnitInRaidSummary.Value;
+            if (useKUnit && absValue >= 10000)
+            {
+                double kValue = absValue / 1000d;
+                string formatted = kValue.ToString("#,0.#", CultureInfo.InvariantCulture);
+                string prefix = value < 0 ? "-₽" : "₽";
+                return $"{prefix}{formatted}k";
+            }
+
             string digits = absValue.ToString("#,0", CultureInfo.InvariantCulture);
-            string prefix = value < 0 ? "-₽" : "₽";
-            return prefix + digits;
+            string defaultPrefix = value < 0 ? "-₽" : "₽";
+            return defaultPrefix + digits;
         }
 
         public static string FormatLabelValue(string label, long value, string color)

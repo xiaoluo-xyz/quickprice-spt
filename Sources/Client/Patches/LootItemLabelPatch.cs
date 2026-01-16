@@ -28,6 +28,7 @@ namespace QuickPrice.Patches
 
         // ===== 颜色缓存（性能优化）=====
         private static readonly Dictionary<string, string> _colorCache = new Dictionary<string, string>();
+        private static readonly object _colorCacheLock = new object();
 
         // ===== 状态标志 =====
         private static bool _isInitialized = false;           // 是否已初始化反射字段
@@ -345,20 +346,27 @@ namespace QuickPrice.Patches
                 }
 
                 // ===== 检查颜色缓存 =====
-                string cacheKey = $"{lootItem.TemplateId}|{originalText}|{Settings.ShowGroundItemPrice.Value}";
-                if (_colorCache.TryGetValue(cacheKey, out string cachedColoredText))
+                string cacheKey = $"{lootItem.TemplateId}|{originalText}|{Settings.ShowGroundItemPrice.Value}|{Settings.RagfairBannedPriceSource.Value}";
+                lock (_colorCacheLock)
                 {
-                    return cachedColoredText;
+                    if (_colorCache.TryGetValue(cacheKey, out string cachedColoredText))
+                    {
+                        return cachedColoredText;
+                    }
                 }
 
                 // ===== 从价格缓存获取价格（不触发网络请求）=====
-                var price = PriceDataService.Instance.GetPrice(lootItem.TemplateId);
-                if (!price.HasValue)
+                var displayPrice = GetGroundItemDisplayPrice(item, lootItem.TemplateId);
+                if (!displayPrice.HasValue)
                 {
                     // 无价格数据，缓存原始文本
-                    _colorCache[cacheKey] = originalText;
+                    lock (_colorCacheLock)
+                    {
+                        _colorCache[cacheKey] = originalText;
+                    }
                     return originalText;
                 }
+                double priceValue = displayPrice.Value;
 
                 string coloredText = originalText;
                 string priceInfo = "";
@@ -374,13 +382,13 @@ namespace QuickPrice.Patches
                     if (Settings.ShowGroundItemPrice.Value)
                     {
                         string damageText = ammo.Damage > 0 ? $" | 威力{ammo.Damage}" : "";
-                        priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)} | 穿透力{ammo.PenetrationPower}{damageText})</color>";
+                        priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(priceValue)} | 穿透力{ammo.PenetrationPower}{damageText})</color>";
                     }
                 }
                 // 2. 子弹盒/弹匣：显示详细信息
                 else if (item is AmmoBox ammoBox)
                 {
-                    coloredText = GetAmmoBoxColoredText(ammoBox, originalText, price.Value, out priceInfo);
+                    coloredText = GetAmmoBoxColoredText(ammoBox, originalText, priceValue, out priceInfo);
                 }
                 // 3. 护甲：按防弹等级着色
                 else if (Settings.EnableArmorClassColoring.Value && ArmorHelper.IsArmor(item))
@@ -393,19 +401,19 @@ namespace QuickPrice.Patches
                         // 价格信息（如果启用）
                         if (Settings.ShowGroundItemPrice.Value)
                         {
-                            priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)} | {armorClass.Value}级)</color>";
+                            priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(priceValue)} | {armorClass.Value}级)</color>";
                         }
                     }
                     else
                     {
                         // 无法获取护甲等级，按价格着色
                         int slots = item.Width * item.Height;
-                        double pricePerSlot = slots > 0 ? price.Value / slots : price.Value;
+                        double pricePerSlot = slots > 0 ? priceValue / slots : priceValue;
                         coloredText = PriceColorCoding.ApplyColor(originalText, pricePerSlot);
 
                         if (Settings.ShowGroundItemPrice.Value)
                         {
-                            priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)})</color>";
+                            priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(priceValue)})</color>";
                         }
                     }
                 }
@@ -413,13 +421,13 @@ namespace QuickPrice.Patches
                 else
                 {
                     int slots = item.Width * item.Height;
-                    double pricePerSlot = slots > 0 ? price.Value / slots : price.Value;
+                    double pricePerSlot = slots > 0 ? priceValue / slots : priceValue;
                     coloredText = PriceColorCoding.ApplyColor(originalText, pricePerSlot);
 
                     // 价格信息（如果启用）
                     if (Settings.ShowGroundItemPrice.Value)
                     {
-                        priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(price.Value)})</color>";
+                        priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(priceValue)})</color>";
                     }
                 }
 
@@ -432,13 +440,16 @@ namespace QuickPrice.Patches
                 string finalText = coloredText + priceInfo;
 
                 // ===== 缓存结果 =====
-                _colorCache[cacheKey] = finalText;
-
-                // ===== 定期清理缓存（避免内存泄漏）=====
-                if (_colorCache.Count > 500)
+                lock (_colorCacheLock)
                 {
-                    ClientLog.Debug($"⚠️ 颜色缓存过大 ({_colorCache.Count} 项)，清理一半");
-                    ClearOldestCacheEntries(250);
+                    _colorCache[cacheKey] = finalText;
+
+                    // ===== 定期清理缓存（避免内存泄漏）=====
+                    if (_colorCache.Count > 500)
+                    {
+                        ClientLog.Debug($"⚠️ 颜色缓存过大 ({_colorCache.Count} 项)，清理一半");
+                        ClearOldestCacheEntries(250);
+                    }
                 }
 
                 return finalText;
@@ -519,10 +530,13 @@ namespace QuickPrice.Patches
         {
             try
             {
-                var keys = new List<string>(_colorCache.Keys);
-                for (int i = 0; i < countToRemove && i < keys.Count; i++)
+                lock (_colorCacheLock)
                 {
-                    _colorCache.Remove(keys[i]);
+                    var keys = new List<string>(_colorCache.Keys);
+                    for (int i = 0; i < countToRemove && i < keys.Count; i++)
+                    {
+                        _colorCache.Remove(keys[i]);
+                    }
                 }
                 ClientLog.Debug($"✅ 已清理 {countToRemove} 个颜色缓存条目");
             }
@@ -537,8 +551,26 @@ namespace QuickPrice.Patches
         /// </summary>
         public static void ClearColorCache()
         {
-            _colorCache.Clear();
+            lock (_colorCacheLock)
+            {
+                _colorCache.Clear();
+            }
             Plugin.Log.LogInfo("✅ 地面物品颜色缓存已清空");
+        }
+
+        private static double? GetGroundItemDisplayPrice(Item item, string templateId)
+        {
+            var fleaPrice = PriceDataService.Instance.GetPrice(templateId);
+            if (item == null)
+                return fleaPrice;
+
+            if (RagfairHelper.ShouldUseTraderPriceForBannedItems(item))
+            {
+                var traderPrice = TraderPriceService.Instance.GetBestTraderPrice(item)?.PriceInRoubles;
+                return traderPrice ?? fleaPrice;
+            }
+
+            return fleaPrice;
         }
     }
 }

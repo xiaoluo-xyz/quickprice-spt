@@ -538,7 +538,8 @@ namespace QuickPrice.Utils
                     if (_broughtSnapshot.ContainsKey(item.Id))
                         return;
 
-                    double? unitPrice = GetItemUnitPrice(item, PricePolicy.Default);
+                    var policy = GetRaidSummaryPricePolicy(item, isDeathOutcome: false, inSecureContainer: false);
+                    double? unitPrice = GetItemUnitPrice(item, policy);
                     int stackCount = GetItemStackCount(item);
                     double relativeValue = GetItemRelativeValue(item);
                     double priceValue = unitPrice ?? 0;
@@ -764,7 +765,8 @@ namespace QuickPrice.Utils
 
                 if (IsStackableItem(item))
                 {
-                    double? unitPrice = GetItemUnitPrice(item, PricePolicy.Default);
+                    var policy = GetRaidSummaryPricePolicy(item, isDeathOutcome: false, inSecureContainer: true);
+                    double? unitPrice = GetItemUnitPrice(item, policy);
                     int stackCount = GetItemStackCount(item);
                     AddStackableSnapshot(_broughtSecureStackableSnapshot, item, unitPrice ?? 0, stackCount);
                 }
@@ -821,12 +823,29 @@ namespace QuickPrice.Utils
             HashSet<string> secureContainerItemIds,
             HashSet<string> protectedItemIds)
         {
+            if (currentStates == null || currentStates.Count == 0)
+                return;
+
+            if (ShouldSkipSnapshotUpdate(secureContainerItemIds))
+                return;
+
             CopyDictionary(_lastKnownStates, currentStates);
             CopyDictionary(_lastKnownStackableCounts, stackableCounts);
             CopyDictionary(_lastKnownSecureStackableCounts, secureStackableCounts);
             CopyDictionary(_lastKnownProtectedStackableCounts, protectedStackableCounts);
             CopyHashSet(_lastKnownSecureContainerItemIds, secureContainerItemIds);
             CopyHashSet(_lastKnownProtectedItemIds, protectedItemIds);
+        }
+
+        private static bool ShouldSkipSnapshotUpdate(HashSet<string> secureContainerItemIds)
+        {
+            if (!_isInRaid || !_raidSnapshotCaptured)
+                return false;
+
+            if (_lastKnownSecureContainerItemIds.Count == 0)
+                return false;
+
+            return secureContainerItemIds == null || secureContainerItemIds.Count == 0;
         }
 
         private static long CalculateLossValue(
@@ -955,13 +974,7 @@ namespace QuickPrice.Utils
                 if (IsStackableItem(current.Item))
                     continue;
 
-                var policy = isDeathOutcome
-                    ? PricePolicy.TraderOnly
-                    : (current.Item.SpawnedInSession ? PricePolicy.Default : PricePolicy.TraderOnly);
-                if (!isDeathOutcome && !current.Item.SpawnedInSession && inSecureContainer)
-                {
-                    policy = PricePolicy.TraderOnly;
-                }
+                var policy = GetRaidSummaryPricePolicy(current.Item, isDeathOutcome, inSecureContainer);
                 double? unitPrice = GetItemUnitPrice(current.Item, policy);
                 if (!unitPrice.HasValue || unitPrice.Value <= 0)
                     continue;
@@ -1441,9 +1454,11 @@ namespace QuickPrice.Utils
                 {
                     foreach (var slot in mod.Slots)
                     {
-                        if (slot?.ContainedItem is Mod childMod)
+                        // Slots can contain non-mod items (e.g., keychain keys).
+                        var slotItem = slot?.ContainedItem;
+                        if (slotItem != null)
                         {
-                            TraverseItemGraph(childMod, visited, action);
+                            TraverseItemGraph(slotItem, visited, action);
                         }
                     }
                 }
@@ -1466,7 +1481,7 @@ namespace QuickPrice.Utils
             }
             else if (item is AmmoBox ammoBox)
             {
-                if (ammoBox.Cartridges?.Items != null)
+                if (ShouldTraverseAmmoBoxCartridges(ammoBox) && ammoBox.Cartridges?.Items != null)
                 {
                     foreach (var cartridge in ammoBox.Cartridges.Items)
                     {
@@ -1474,6 +1489,14 @@ namespace QuickPrice.Utils
                     }
                 }
             }
+        }
+
+        private static bool ShouldTraverseAmmoBoxCartridges(AmmoBox ammoBox)
+        {
+            if (ammoBox == null)
+                return false;
+
+            return !_isInRaid;
         }
 
         private static IEnumerable<Item> GetWeaponChamberItems(Weapon weapon)
@@ -1764,13 +1787,7 @@ namespace QuickPrice.Utils
 
                 int takeCount = Math.Min(Math.Max(1, current.StackCount), remainingCount);
                 bool inSecureContainer = secureContainerItemIds.Contains(current.ItemId);
-                var policy = forceTraderOnly
-                    ? PricePolicy.TraderOnly
-                    : (item.SpawnedInSession ? PricePolicy.Default : PricePolicy.TraderOnly);
-                if (!forceTraderOnly && !item.SpawnedInSession && inSecureContainer)
-                {
-                    policy = PricePolicy.TraderOnly;
-                }
+                var policy = GetRaidSummaryPricePolicy(item, forceTraderOnly, inSecureContainer);
 
                 double? unitPrice = GetItemUnitPrice(item, policy);
                 if (unitPrice.HasValue && unitPrice.Value > 0)
@@ -2083,6 +2100,27 @@ namespace QuickPrice.Utils
                 double unitPrice = GetTemplateUnitPrice(templateId);
                 AddStackableSnapshot(snapshotMap, templateId, unitPrice, 1);
             }
+        }
+
+        private static PricePolicy GetRaidSummaryPricePolicy(
+            Item item,
+            bool isDeathOutcome,
+            bool inSecureContainer)
+        {
+            if (item == null)
+                return PricePolicy.Default;
+
+            if (isDeathOutcome)
+                return PricePolicy.TraderOnly;
+
+            bool useTraderForNonFir = Settings.UseTraderPriceForNonFirInRaidSummary?.Value ?? true;
+            if (!item.SpawnedInSession && useTraderForNonFir)
+                return PricePolicy.TraderOnly;
+
+            if (!item.SpawnedInSession && inSecureContainer && useTraderForNonFir)
+                return PricePolicy.TraderOnly;
+
+            return PricePolicy.Default;
         }
 
         private static double GetTemplateUnitPrice(string templateId)

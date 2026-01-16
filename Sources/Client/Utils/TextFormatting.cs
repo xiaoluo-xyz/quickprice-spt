@@ -47,7 +47,7 @@ namespace QuickPrice.Utils
             }
 
             double value = price / 1000d;
-            string formatted = value.ToString("0.#", CultureInfo.InvariantCulture);
+            string formatted = value.ToString("#,0.#", CultureInfo.InvariantCulture);
             return $"₽{formatted}k";
         }
 

@@ -6,6 +6,7 @@ using UnityEngine;
 using UnityEngine.Networking;
 using Comfort.Common;
 using EFT.UI;
+using QuickPrice.Config;
 using QuickPrice.Logging;
 
 namespace QuickPrice.Utils
@@ -42,6 +43,11 @@ namespace QuickPrice.Utils
         public static bool TryPlayCustomSound(int priceLevel, out string report)
         {
             ClientLog.Debug($"🔊 TryPlayCustomSound: level={priceLevel}");
+            if (!IsLevelEnabled(priceLevel))
+            {
+                report = BuildClipReport(priceLevel, null, "disabled");
+                return false;
+            }
             var clip = TryGetLoadedClip(priceLevel);
             if (clip == null)
             {
@@ -63,6 +69,9 @@ namespace QuickPrice.Utils
         /// </summary>
         public static bool HasCustomSound(int priceLevel)
         {
+            if (!IsLevelEnabled(priceLevel))
+                return false;
+
             return TryGetLoadedClip(priceLevel) != null;
         }
 
@@ -263,6 +272,9 @@ namespace QuickPrice.Utils
                 return;
             }
 
+            if (!IsLevelEnabled(priceLevel))
+                return;
+
             if (!BeginLoading(priceLevel))
                 return;
 
@@ -295,6 +307,9 @@ namespace QuickPrice.Utils
             ClientLog.Debug("🔊 PreloadAllCoroutine start");
             for (int level = 1; level <= 6; level++)
             {
+                if (!IsLevelEnabled(level))
+                    continue;
+
                 if (TryGetLoadedClip(level) != null)
                     continue;
 
@@ -343,6 +358,11 @@ namespace QuickPrice.Utils
             }
 
             return $"level={priceLevel}, name={clip.name}, len={clip.length:F2}s, ch={clip.channels}, hz={clip.frequency}, samples={clip.samples}, load={clip.loadState}, status={status}, bytes={size}";
+        }
+
+        private static bool IsLevelEnabled(int priceLevel)
+        {
+            return Settings.IsSearchSoundLevelEnabled(priceLevel);
         }
 
         private static UnityWebRequest CreateAudioClipRequest(string uri, AudioType audioType, bool streamAudio, bool compressed)

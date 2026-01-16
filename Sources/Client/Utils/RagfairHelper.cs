@@ -1,5 +1,6 @@
 using System;
 using EFT.InventoryLogic;
+using QuickPrice.Config;
 using QuickPrice.Services;
 
 namespace QuickPrice.Utils
@@ -71,11 +72,33 @@ namespace QuickPrice.Utils
             var canSell = CanSellOnRagfair(item);
             if (canSell.HasValue)
             {
-                return canSell.Value;
+                if (canSell.Value)
+                    return true;
+
+                var mode = Settings.RagfairBannedPriceSource?.Value ?? Settings.BannedPriceSource.Default;
+                return mode == Settings.BannedPriceSource.Flea;
             }
 
             // 数据未加载时默认显示
             return true;
+        }
+
+        /// <summary>
+        /// 禁售物品是否应使用商人回收价显示
+        /// </summary>
+        /// <param name="item">物品</param>
+        /// <returns>true = 禁售且使用商人价显示</returns>
+        public static bool ShouldUseTraderPriceForBannedItems(Item item)
+        {
+            if (item == null)
+                return false;
+
+            var mode = Settings.RagfairBannedPriceSource?.Value ?? Settings.BannedPriceSource.Default;
+            if (mode != Settings.BannedPriceSource.Trader)
+                return false;
+
+            var canSell = CanSellOnRagfair(item);
+            return canSell.HasValue && !canSell.Value;
         }
     }
 }

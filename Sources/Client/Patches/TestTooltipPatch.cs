@@ -269,6 +269,9 @@ namespace QuickPrice.Patches
             if (item == null)
                 return fleaPrice ?? traderPrice;
 
+            if (RagfairHelper.ShouldUseTraderPriceForBannedItems(item))
+                return traderPrice ?? fleaPrice;
+
             if (ShouldHideRagfairPriceForNonFIR(item))
                 return traderPrice ?? fleaPrice;
 
@@ -887,7 +890,7 @@ namespace QuickPrice.Patches
             // 显示单格价值（如果启用）
             if (Settings.ShowPricePerSlot.Value && slots > 1)
             {
-                double pricePerSlot = totalPrice / slots;
+                double pricePerSlot = displayTotalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
@@ -951,7 +954,8 @@ namespace QuickPrice.Patches
         private static void AppendTraderPriceIfEnabled(StringBuilder sb, Item item)
         {
             // 检查是否启用商人价格显示
-            if (!Settings.ShowTraderPrices.Value)
+            bool forceShowForBanned = RagfairHelper.ShouldUseTraderPriceForBannedItems(item);
+            if (!Settings.ShowTraderPrices.Value && !forceShowForBanned)
                 return;
 
             try
@@ -1613,7 +1617,7 @@ namespace QuickPrice.Patches
             // 显示单格价值
             if (Settings.ShowPricePerSlot.Value && slots > 1)
             {
-                double pricePerSlot = totalPrice / slots;
+                double pricePerSlot = displayTotalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 

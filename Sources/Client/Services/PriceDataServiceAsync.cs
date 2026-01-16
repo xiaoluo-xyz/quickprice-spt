@@ -77,6 +77,11 @@ namespace QuickPrice.Services
                     if (!string.IsNullOrEmpty(json))
                     {
                         var newCache = JsonConvert.DeserializeObject<Dictionary<string, double>>(json);
+                        if (newCache == null)
+                        {
+                            ClientLog.Warning("⚠️ 服务端返回数据无法解析");
+                            return false;
+                        }
 
                         // 使用锁保护缓存更新
                         lock (_lockObject)
@@ -85,7 +90,7 @@ namespace QuickPrice.Services
                             _lastUpdate = DateTime.Now;
                         }
 
-                        Plugin.Log.LogInfo($"✅ 价格数据异步更新成功: {_priceCache.Count} 个物品");
+                        Plugin.Log.LogInfo($"✅ 价格数据异步更新成功: {newCache.Count} 个物品");
 
                         // 清理地面物品颜色缓存（价格已更新，颜色需要重新计算）
                         try

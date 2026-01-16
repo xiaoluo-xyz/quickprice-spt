@@ -54,6 +54,7 @@ namespace QuickPrice.Config
         // ===== 2. 价格显示 =====
         public static ConfigEntry<bool> ShowFleaPrices;
         public static ConfigEntry<bool> HideRagfairPriceForNonFIRItems;
+        public static ConfigEntry<BannedPriceSource> RagfairBannedPriceSource;
         public static ConfigEntry<bool> ShowTraderPrices;      // 显示商人价格
         public static ConfigEntry<bool> ShowFleaTax;            // 显示跳蚤税费
         public static ConfigEntry<bool> ShowPricePerSlot;
@@ -118,6 +119,8 @@ namespace QuickPrice.Config
         public static ConfigEntry<bool> ExcludeSpecialSlotsFromBroughtValue; // 带入价值排除特殊装备栏
         public static ConfigEntry<bool> ShowBroughtValueInRaid; // 战局内显示带入价值
         public static ConfigEntry<bool> ShowLossValueInRaid; // 战局内显示损耗价值
+        public static ConfigEntry<bool> UseKUnitInRaidSummary; // 战局结算使用K单位显示
+        public static ConfigEntry<bool> UseTraderPriceForNonFirInRaidSummary; // 战局结算非发现物使用商人回收价
         public static ConfigEntry<bool> IncludeWeaponDurabilityLoss; // 武器耐久计入损耗
         public static ConfigEntry<bool> IncludeArmorDurabilityLoss; // 护甲耐久计入损耗
         public static ConfigEntry<float> RepairCostPriceMultiplier; // 维修价格倍率
@@ -125,6 +128,12 @@ namespace QuickPrice.Config
 
         // ===== 6. 搜索设置 =====
         public static ConfigEntry<bool> EnableSearchSound;    // 搜索音效开关
+        public static ConfigEntry<bool> EnableSearchSoundLevel1; // 搜索音效等级1开关
+        public static ConfigEntry<bool> EnableSearchSoundLevel2; // 搜索音效等级2开关
+        public static ConfigEntry<bool> EnableSearchSoundLevel3; // 搜索音效等级3开关
+        public static ConfigEntry<bool> EnableSearchSoundLevel4; // 搜索音效等级4开关
+        public static ConfigEntry<bool> EnableSearchSoundLevel5; // 搜索音效等级5开关
+        public static ConfigEntry<bool> EnableSearchSoundLevel6; // 搜索音效等级6开关
         public static ConfigEntry<bool> EnableSearchTimeAdjustment; // 搜索时间调整开关
         public static ConfigEntry<float> SearchTimeRandomMin; // 搜索随机延迟最小值
         public static ConfigEntry<float> SearchTimeRandomMax; // 搜索随机延迟最大值
@@ -164,6 +173,13 @@ namespace QuickPrice.Config
             FiveMinutes,    // 5分钟自动过期
             TenMinutes,     // 10分钟自动过期
             Manual          // 仅手动刷新
+        }
+
+        public enum BannedPriceSource
+        {
+            Default,        // 默认行为：禁售时不显示跳蚤价格
+            Flea,           // 使用跳蚤价格
+            Trader          // 使用商人回收价
         }
 
         public static void Init(ConfigFile config)
@@ -208,6 +224,18 @@ namespace QuickPrice.Config
                 false,
                 "物品未标记为战局发现时隐藏跳蚤价格\n" +
                 "单格价值改用商人价格计算",
+                LegacySectionMain
+            );
+
+            RagfairBannedPriceSource = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
+                "禁售物品价格来源",
+                BannedPriceSource.Trader,
+                "跳蚤禁售物品的价格显示来源\n" +
+                "Default: 保持当前逻辑（禁售时不显示跳蚤价格）\n" +
+                "Flea: 显示跳蚤价格并标记禁售\n" +
+                "Trader: 使用商人回收价显示",
                 LegacySectionMain
             );
 
@@ -707,6 +735,24 @@ namespace QuickPrice.Config
                 LegacySectionV2Features
             );
 
+            UseKUnitInRaidSummary = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "战局结算启用K单位显示",
+                true,
+                "战局结算数值使用K单位显示（≥ 10,000 显示为 ₽10k）",
+                LegacySectionV2Features
+            );
+
+            UseTraderPriceForNonFirInRaidSummary = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "战局结算非发现物使用商人回收价",
+                true,
+                "战局结算时，非发现物(FIR)价值按商人回收价计算",
+                LegacySectionV2Features
+            );
+
             IncludeWeaponDurabilityLoss = BindWithLegacy(
                 config,
                 SectionRaidSummary,
@@ -809,6 +855,60 @@ namespace QuickPrice.Config
                 LegacySectionSearch
             );
 
+            EnableSearchSoundLevel1 = BindWithLegacy(
+                config,
+                SectionSearch,
+                "启用搜索音效等级1",
+                true,
+                "控制品质等级1的搜索音效是否播放",
+                LegacySectionSearch
+            );
+
+            EnableSearchSoundLevel2 = BindWithLegacy(
+                config,
+                SectionSearch,
+                "启用搜索音效等级2",
+                true,
+                "控制品质等级2的搜索音效是否播放",
+                LegacySectionSearch
+            );
+
+            EnableSearchSoundLevel3 = BindWithLegacy(
+                config,
+                SectionSearch,
+                "启用搜索音效等级3",
+                true,
+                "控制品质等级3的搜索音效是否播放",
+                LegacySectionSearch
+            );
+
+            EnableSearchSoundLevel4 = BindWithLegacy(
+                config,
+                SectionSearch,
+                "启用搜索音效等级4",
+                true,
+                "控制品质等级4的搜索音效是否播放",
+                LegacySectionSearch
+            );
+
+            EnableSearchSoundLevel5 = BindWithLegacy(
+                config,
+                SectionSearch,
+                "启用搜索音效等级5",
+                true,
+                "控制品质等级5的搜索音效是否播放",
+                LegacySectionSearch
+            );
+
+            EnableSearchSoundLevel6 = BindWithLegacy(
+                config,
+                SectionSearch,
+                "启用搜索音效等级6",
+                true,
+                "控制品质等级6的搜索音效是否播放",
+                LegacySectionSearch
+            );
+
             EnableSearchTimeAdjustment = RegisterOverrideEntry(BindWithLegacy(
                 config,
                 SectionSearch,
@@ -852,7 +952,7 @@ namespace QuickPrice.Config
                 config,
                 SectionSearch,
                 "品质等级1搜索时间（秒）",
-                1f,
+                0.5f,
                 CreateOverrideDescription(
                     "最低价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
@@ -865,7 +965,7 @@ namespace QuickPrice.Config
                 config,
                 SectionSearch,
                 "品质等级2搜索时间（秒）",
-                2f,
+                1f,
                 CreateOverrideDescription(
                     "较低价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
@@ -878,7 +978,7 @@ namespace QuickPrice.Config
                 config,
                 SectionSearch,
                 "品质等级3搜索时间（秒）",
-                3f,
+                1.5f,
                 CreateOverrideDescription(
                     "中等价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
@@ -891,7 +991,7 @@ namespace QuickPrice.Config
                 config,
                 SectionSearch,
                 "品质等级4搜索时间（秒）",
-                4f,
+                2f,
                 CreateOverrideDescription(
                     "较高价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
@@ -904,7 +1004,7 @@ namespace QuickPrice.Config
                 config,
                 SectionSearch,
                 "品质等级5搜索时间（秒）",
-                5f,
+                3f,
                 CreateOverrideDescription(
                     "高价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
@@ -917,7 +1017,7 @@ namespace QuickPrice.Config
                 config,
                 SectionSearch,
                 "品质等级6搜索时间（秒）",
-                6f,
+                4f,
                 CreateOverrideDescription(
                     "最高价值等级的搜索时间\n" +
                     "仅在启用搜索时间调整时生效",
@@ -1034,6 +1134,20 @@ namespace QuickPrice.Config
         public static int GetPenetrationThreshold3() => GetOverrideValue(config => config.PenetrationThreshold3, PenetrationThreshold3.Value);
         public static int GetPenetrationThreshold4() => GetOverrideValue(config => config.PenetrationThreshold4, PenetrationThreshold4.Value);
         public static int GetPenetrationThreshold5() => GetOverrideValue(config => config.PenetrationThreshold5, PenetrationThreshold5.Value);
+
+        public static bool IsSearchSoundLevelEnabled(int level)
+        {
+            return level switch
+            {
+                1 => EnableSearchSoundLevel1.Value,
+                2 => EnableSearchSoundLevel2.Value,
+                3 => EnableSearchSoundLevel3.Value,
+                4 => EnableSearchSoundLevel4.Value,
+                5 => EnableSearchSoundLevel5.Value,
+                6 => EnableSearchSoundLevel6.Value,
+                _ => true
+            };
+        }
 
         public static bool GetEnableSearchTimeAdjustment() => GetOverrideValue(config => config.EnableSearchTimeAdjustment, EnableSearchTimeAdjustment.Value);
         public static float GetSearchTimeRandomMin() => GetOverrideValue(config => config.SearchTimeRandomMin, SearchTimeRandomMin.Value);

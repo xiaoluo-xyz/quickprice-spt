@@ -25,7 +25,9 @@ namespace QuickPrice.Patches
         }
 
         [PatchPostfix]
-        public static void Postfix(SessionResultExitStatus __instance, ExitStatus exitStatus)
+        public static void Postfix(
+            SessionResultExitStatus __instance,
+            [HarmonyArgument(3)] ExitStatus exitStatus)
         {
             try
             {
