@@ -1,4 +1,4 @@
-## 🎉 QuickPrice v1.3.1 - 更新说明
+## 🎉 QuickPrice v2.0.0 - 更新说明
 
 **QuickPrice** 是一个综合性的 SPT 4.0.0 模组，可以在物品栏的提示框中直接显示物品的实时价格。
 
@@ -38,7 +38,7 @@
 
 ## 📦 安装方法
 
-1. 下载下方的 **QuickPrice-v1.3.1.zip**
+1. 下载下方的 **QuickPrice-v2.0.0.zip**
 2. 解压到 SPT 游戏根目录（包含 SPT.Server.exe 的文件夹）
 3. 启动 SPT 服务器和游戏
 4. 鼠标悬停物品即可看到价格！

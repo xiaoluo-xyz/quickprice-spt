@@ -1,4 +1,4 @@
-﻿// ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // QuickPrice - SPT 4.0.0 Server Mod
 // 为客户端BepInEx插件提供价格数据的服务端模组
 // ----------------------------------------------------------------------------
@@ -70,7 +70,7 @@ namespace QuickPrice.Server
         {
             try
             {
-                LogInfo("[QuickPrice v1.3.1] 服务端模组加载中...", null);
+                LogInfo("[QuickPrice v2.0.0] 服务端模组加载中...", null);
 
                 // 路由已通过依赖注入自动注册
                 // QuickPriceStaticRouter 在构造时自动注册以下端点：
@@ -80,7 +80,7 @@ namespace QuickPrice.Server
                 // 4. /showMeTheMoney/getTraderBuybackPriceTable
                 // 5. /showMeTheMoney/getRagfairBannedItems
 
-                LogSuccess("[QuickPrice v1.3.1] 服务端模组加载完成，准备就绪", null);
+                LogSuccess("[QuickPrice v2.0.0] 服务端模组加载完成，准备就绪", null);
                 LogInfo("[QuickPrice] HTTP 路由注册完成", null);
             }
             catch (Exception ex)

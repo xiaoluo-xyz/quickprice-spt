@@ -702,7 +702,7 @@ namespace QuickPrice.Config
                 config,
                 SectionRaidSummary,
                 "战局内显示损耗价值",
-                false,
+                true,
                 "战局内结算面板是否显示损耗价值",
                 LegacySectionV2Features
             );

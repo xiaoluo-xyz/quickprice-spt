@@ -2,7 +2,7 @@
 
 **Real-time item value display for SPT (Single Player Tarkov) 4.0.0**
 
-![Version](https://img.shields.io/badge/version-1.3.1-blue)
+![Version](https://img.shields.io/badge/version-2.0.0-blue)
 ![SPT](https://img.shields.io/badge/SPT-4.0.0-green)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
@@ -212,7 +212,7 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 
 ## 📝 Changelog
 
-### Version 1.3.1 (2026-01-13)
+### Version 2.0.0 (2026-01-13)
 - Added client log gating for debug/warn output and improved debug toggle behavior
 - Added search sound/time settings with six-tier duration presets (SearchPatch merge)
 - Added server reloadable config (Enable/CacheTimeout/AutoRefresh) with disable flow

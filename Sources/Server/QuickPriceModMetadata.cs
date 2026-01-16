@@ -33,7 +33,7 @@ namespace QuickPrice.Server
         /// <summary>
         /// Mod的版本号
         /// </summary>
-        public override SemanticVersioning.Version Version { get; init; } = SemanticVersioning.Version.Parse("1.3.1");
+        public override SemanticVersioning.Version Version { get; init; } = SemanticVersioning.Version.Parse("2.0.0");
 
         /// <summary>
         /// 支持的SPT版本范围
@@ -48,7 +48,7 @@ namespace QuickPrice.Server
         /// <summary>
         /// Mod的URL
         /// </summary>
-        public override string? Url { get; init; } = "https://github.com/2324834989/quickprice-spt";
+        public override string? Url { get; init; } = "https://github.com/xiaoluo-xyz/quickprice-spt";
 
         /// <summary>
         /// Mod的许可证

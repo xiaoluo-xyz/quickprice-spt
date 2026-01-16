@@ -418,48 +418,11 @@ namespace QuickPrice
                     _ = RefreshPricesManuallyAsync();
                 }
 
-                // 搜索音效测试：按 Y 随机播放枚举 UI 音效
-                if (Input.GetKeyDown(KeyCode.Y))
-                {
-                    var soundType = GetRandomUiSoundType();
-                    ClientLog.Debug($"🔊 UISound test key pressed: {soundType}");
-                    NotificationManagerClass.DisplayMessageNotification(
-                        $"QuickPrice: 播放 UI 音效 {soundType}",
-                        ENotificationDurationType.Default);
-                    Singleton<GUISounds>.Instance.PlayUISound(soundType);
-                }
-
-                // 搜索音效测试：按 U 随机播放自定义音效（1-6档）
-                if (Input.GetKeyDown(KeyCode.U))
-                {
-                    int level = UnityEngine.Random.Range(1, 7);
-                    ClientLog.Debug($"🔊 CustomSound test key pressed: level={level}");
-                    bool played = SearchSoundCustomAudio.TryPlayCustomSound(level, out var report);
-                    NotificationManagerClass.DisplayMessageNotification(
-                        $"QuickPrice: 自定义音效 level={level} {report} played={played}",
-                        ENotificationDurationType.Default);
-                }
             }
             catch (System.Exception ex)
             {
                 Log.LogError($"❌ 快捷键检测失败: {ex.Message}");
             }
-        }
-
-        private static EUISoundType GetRandomUiSoundType()
-        {
-            var values = (EUISoundType[])Enum.GetValues(typeof(EUISoundType));
-            if (values.Length == 0)
-                return default;
-
-            for (int i = 0; i < values.Length; i++)
-            {
-                var candidate = values[UnityEngine.Random.Range(0, values.Length)];
-                if (!string.Equals(candidate.ToString(), "None", StringComparison.OrdinalIgnoreCase))
-                    return candidate;
-            }
-
-            return values[0];
         }
 
         private async Task SyncServerConfigAsync()
