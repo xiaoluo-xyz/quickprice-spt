@@ -26,6 +26,9 @@
     <Reference Include="Comfort">
       <HintPath>$(TarkovManagedDir)Comfort.dll</HintPath>
     </Reference>
+    <Reference Include="ItemComponent.Types">
+      <HintPath>$(TarkovManagedDir)ItemComponent.Types.dll</HintPath>
+    </Reference>
     <Reference Include="Newtonsoft.Json">
       <HintPath>$(TarkovManagedDir)Newtonsoft.Json.dll</HintPath>
     </Reference>

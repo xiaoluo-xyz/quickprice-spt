@@ -23,6 +23,7 @@ namespace QuickPrice.Config
         private const string SectionThresholdReset = "4.4 阈值重置";
         private const string SectionCache = "5. 价格缓存与刷新";
         private const string SectionContainer = "5.1 容器性能";
+        private const string SectionRaidSummary = "5.2 战局结算";
         private const string SectionSearch = "6. 搜索设置";
         private const string SectionDebug = "7. 调试设置";
 
@@ -52,6 +53,7 @@ namespace QuickPrice.Config
 
         // ===== 2. 价格显示 =====
         public static ConfigEntry<bool> ShowFleaPrices;
+        public static ConfigEntry<bool> HideRagfairPriceForNonFIRItems;
         public static ConfigEntry<bool> ShowTraderPrices;      // 显示商人价格
         public static ConfigEntry<bool> ShowFleaTax;            // 显示跳蚤税费
         public static ConfigEntry<bool> ShowPricePerSlot;
@@ -107,6 +109,15 @@ namespace QuickPrice.Config
         public static ConfigEntry<int> MaxContainerItems;        // 最大计算物品数
         public static ConfigEntry<bool> SkipLargeContainers;     // 跳过大容器
         public static ConfigEntry<int> LargeContainerThreshold;  // 大容器阈值
+
+        // ===== 5.2 战局结算 =====
+        public static ConfigEntry<bool> ExcludeSecuredContainerFromBroughtValue; // 带入价值排除保险箱
+        public static ConfigEntry<bool> ExcludeKnifeFromBroughtValue; // 带入价值排除刀具
+        public static ConfigEntry<bool> ExcludeArmBandFromBroughtValue; // 带入价值排除臂带
+        public static ConfigEntry<bool> ExcludeDogtagFromBroughtValue; // 带入价值排除狗牌
+        public static ConfigEntry<bool> ExcludeSpecialSlotsFromBroughtValue; // 带入价值排除特殊装备栏
+        public static ConfigEntry<bool> ShowBroughtValueInRaid; // 战局内显示带入价值
+        public static ConfigEntry<bool> ShowLossValueInRaid; // 战局内显示损耗价值
 
         // ===== 6. 搜索设置 =====
         public static ConfigEntry<bool> EnableSearchSound;    // 搜索音效开关
@@ -183,6 +194,16 @@ namespace QuickPrice.Config
                 "显示跳蚤市场价格",
                 true,
                 "在物品提示框中显示跳蚤市场价格",
+                LegacySectionMain
+            );
+
+            HideRagfairPriceForNonFIRItems = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
+                "非发现物隐藏跳蚤价格",
+                false,
+                "物品未标记为战局发现时隐藏跳蚤价格\n" +
+                "单格价值改用商人价格计算",
                 LegacySectionMain
             );
 
@@ -611,6 +632,75 @@ namespace QuickPrice.Config
                     new AcceptableValueRange<int>(10, 500)
                 ),
                 LegacySectionContainer
+            );
+
+            // ===== 5.2 战局结算 =====
+            ExcludeSecuredContainerFromBroughtValue = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "带入价值排除保险箱",
+                true,
+                "计算带入价值时不包含保险箱本体，但仍计入内部物品\n" +
+                "⚠️ 仅影响带入/损耗计算，不影响战局收获统计",
+                LegacySectionV2Features
+            );
+
+            ExcludeKnifeFromBroughtValue = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "带入价值排除刀具",
+                true,
+                "计算带入价值时不包含刀具（Scabbard 槽位）\n" +
+                "⚠️ 仅影响带入/损耗计算，不影响战局收获统计",
+                LegacySectionV2Features
+            );
+
+            ExcludeArmBandFromBroughtValue = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "带入价值排除臂带",
+                true,
+                "计算带入价值时不包含臂带（ArmBand 槽位）\n" +
+                "⚠️ 仅影响带入/损耗计算，不影响战局收获统计",
+                LegacySectionV2Features
+            );
+
+            ExcludeDogtagFromBroughtValue = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "带入价值排除狗牌",
+                true,
+                "计算带入价值时不包含狗牌（Dogtag 槽位）\n" +
+                "⚠️ 仅影响带入/损耗计算，不影响战局收获统计",
+                LegacySectionV2Features
+            );
+
+            ExcludeSpecialSlotsFromBroughtValue = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "带入价值排除特殊装备栏",
+                true,
+                "计算带入价值时不包含特殊装备栏（例如指南针等）\n" +
+                "⚠️ 仅影响带入/损耗计算，不影响战局收获统计",
+                LegacySectionV2Features
+            );
+
+            ShowBroughtValueInRaid = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "战局内显示带入价值",
+                false,
+                "战局内结算面板是否显示带入价值",
+                LegacySectionV2Features
+            );
+
+            ShowLossValueInRaid = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "战局内显示损耗价值",
+                false,
+                "战局内结算面板是否显示损耗价值",
+                LegacySectionV2Features
             );
 
             // ===== 2. 价格显示 =====

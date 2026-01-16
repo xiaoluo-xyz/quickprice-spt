@@ -5,6 +5,7 @@ using EFT.UI.SessionEnd;
 using HarmonyLib;
 using SPT.Reflection.Patching;
 using TMPro;
+using QuickPrice.Utils;
 
 namespace QuickPrice.Patches
 {
@@ -13,8 +14,6 @@ namespace QuickPrice.Patches
     /// </summary>
     public class SessionResultExitStatusPatch : ModulePatch
     {
-        private const string LootText = "<color=#6FA36A>本局收获: 100000000 ₽</color>";
-
         private static readonly FieldInfo RaidTimeField = AccessTools.Field(typeof(SessionResultExitStatus), "_raidTime");
         protected override MethodBase GetTargetMethod()
         {
@@ -51,7 +50,7 @@ namespace QuickPrice.Patches
                     builder.Append(raidTimeText.text);
                     builder.AppendLine();
                 }
-                builder.Append(LootText);
+                builder.Append(RaidSummaryMetrics.BuildSettlementText());
                 raidTimeText.text = builder.ToString();
             }
             catch (Exception ex)

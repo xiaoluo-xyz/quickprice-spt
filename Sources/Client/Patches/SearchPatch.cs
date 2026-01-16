@@ -8,11 +8,30 @@ using QuickPrice.Services;
 using UnityEngine;
 using QuickPrice.Config;
 using QuickPrice.Utils;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Patches
 {
     public static class SearchPatch
     {
+        private static int? InstantSearchMaxLevel;
+
+        private static int GetMaxUnknownItemPriceLevel(GClass3515 instance)
+        {
+            int maxLevel = 1;
+            foreach (Item item in instance.Item.GetFirstLevelItems())
+            {
+                if (instance.IplayerSearchController_0.IsItemKnown(item, null))
+                    continue;
+
+                int level = SearchSoundPatch.GetItemPriceLevel(item);
+                if (level > maxLevel)
+                    maxLevel = level;
+            }
+
+            return maxLevel;
+        }
+
         /// <summary>
         /// 搜索音效补丁 - 根据物品价格等级播放不同音效
         /// </summary>
@@ -23,10 +42,14 @@ namespace QuickPrice.Patches
             public static bool Prefix(GClass3517 __instance, Item item)
             {
                 if (!Settings.EnableSearchSound.Value)
+                {
+                    ClientLog.Debug("🔊 SearchSoundPatch skipped: EnableSearchSound=false");
                     return true;
+                }
 
                 try
                 {
+                    ClientLog.Debug($"🔊 SearchSoundPatch: item={item?.TemplateId ?? "null"}");
                     return !TryPlayCustomSound(item); // 播放成功则跳过原始方法
                 }
                 catch (Exception ex)
@@ -46,11 +69,20 @@ namespace QuickPrice.Patches
                 public static bool Prefix(SearchContentOperationResultClass __instance, Item item)
                 {
                     if (!Settings.EnableSearchSound.Value)
+                    {
+                        ClientLog.Debug("🔊 SearchSoundPatch2 skipped: EnableSearchSound=false");
                         return true;
+                    }
 
                     try
                     {
-                        return !SearchSoundPatch.TryPlayCustomSound(item); // 播放成功则跳过原始方法
+                        if (item == null)
+                            return true;
+
+                        int priceLevel = SearchSoundPatch.GetItemPriceLevel(item);
+                        bool hasCustom = SearchSoundCustomAudio.HasCustomSound(priceLevel);
+                        ClientLog.Debug($"🔊 SearchSoundPatch2: item={item.TemplateId}, level={priceLevel}, hasCustom={hasCustom}");
+                        return !hasCustom; // 有自定义音效则跳过原始方法
                     }
                     catch (Exception ex)
                     {
@@ -114,11 +146,88 @@ namespace QuickPrice.Patches
         }
 
         /// <summary>
-        /// 主搜索执行补丁 - 在 method_6 中引入自定义延迟
+        /// 秒搜音效上下文补丁 - 计算本次秒搜的最高价值等级
         /// </summary>
-        [HarmonyPatch(typeof(GClass3515), "method_6")]
-        public static class MainSearchExecutionPatch
+        [HarmonyPatch(typeof(SearchContentOperationResultClass), "ExecuteInternal")]
+        public static class InstantSearchContextPatch
         {
+            [HarmonyPrefix]
+            public static void Prefix(SearchContentOperationResultClass __instance)
+            {
+                if (!Settings.EnableSearchSound.Value)
+                {
+                    ClientLog.Debug("🔊 InstantSearchContext skipped: EnableSearchSound=false");
+                    return;
+                }
+
+                if (!__instance.Bool_0)
+                {
+                    ClientLog.Debug("🔊 InstantSearchContext skipped: Bool_0=false");
+                    return;
+                }
+
+                try
+                {
+                    InstantSearchMaxLevel = GetMaxUnknownItemPriceLevel(__instance);
+                    ClientLog.Debug($"🔊 InstantSearchContext: maxLevel={InstantSearchMaxLevel}");
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogError($"搜索音效播放失败: {ex.Message}");
+                    InstantSearchMaxLevel = null;
+                }
+            }
+
+            [HarmonyPostfix]
+            public static void Postfix(SearchContentOperationResultClass __instance)
+            {
+                if (__instance.Bool_0)
+                    InstantSearchMaxLevel = null;
+            }
+        }
+
+        /// <summary>
+        /// 秒搜音效补丁 - 优先播放自定义音效
+        /// </summary>
+        [HarmonyPatch(typeof(SearchContentOperationResultClass), "smethod_4")]
+        public static class InstantSearchSoundPatch
+        {
+            [HarmonyPrefix]
+            public static bool Prefix()
+            {
+                if (!Settings.EnableSearchSound.Value)
+                {
+                    ClientLog.Debug("🔊 InstantSearchSound skipped: EnableSearchSound=false");
+                    return true;
+                }
+
+                if (!InstantSearchMaxLevel.HasValue)
+                {
+                    ClientLog.Debug("🔊 InstantSearchSound skipped: maxLevel missing");
+                    return true;
+                }
+
+                try
+                {
+                    int level = InstantSearchMaxLevel.Value;
+                    InstantSearchMaxLevel = null;
+                    ClientLog.Debug($"🔊 InstantSearchSound: level={level}");
+                    return !SearchSoundCustomAudio.TryPlayCustomSound(level);
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.LogError($"搜索音效播放失败: {ex.Message}");
+                    return true;
+                }
+            }
+        }
+
+        /// <summary>
+            /// 主搜索执行补丁 - 在 method_6 中引入自定义延迟
+            /// </summary>
+            [HarmonyPatch(typeof(GClass3515), "method_6")]
+            public static class MainSearchExecutionPatch
+            {
             private static bool IsProcessing = false;
 
             [HarmonyPrefix]
@@ -154,6 +263,35 @@ namespace QuickPrice.Patches
                     if (!__instance.IplayerSearchController_0.ContainsUnknownItems(__instance.Item))
                         return;
 
+                    if (__instance.Bool_0)
+                    {
+                        int maxPriceLevel = 1;
+                        bool hasUnknownItems = false;
+
+                        Item instantItem;
+                        while (GetUnknownItem(__instance, out instantItem))
+                        {
+                            if (__instance.Boolean_0)
+                                return;
+
+                            hasUnknownItems = true;
+                            int priceLevel = GetItemPriceLevel(instantItem);
+                            if (priceLevel > maxPriceLevel)
+                                maxPriceLevel = priceLevel;
+
+                            __instance.DiscoverItem(instantItem);
+                        }
+
+                        __instance.IplayerSearchController_0.OnItemFullySearched();
+
+                        if (Settings.EnableSearchSound.Value && hasUnknownItems)
+                        {
+                            SearchSoundCustomAudio.TryPlayCustomSound(maxPriceLevel);
+                        }
+
+                        return;
+                    }
+
                     // 获取技能系数（与原代码相同的计算方式）
                     bool isEquipment = __instance.Item.Parent.GetOwner().RootItem is InventoryEquipment;
                     IInventoryProfileSkillInfo skillsInfo = __instance.Profile_0.SkillsInfo;
@@ -168,6 +306,8 @@ namespace QuickPrice.Patches
                         int priceLevel = GetItemPriceLevel(unknownItem); // 注意：这里使用unknownItem而不是__instance.Item
                         float baseSearchTime = CalculateSearchTime(priceLevel);
                         float actualSearchTime = baseSearchTime / skillFactor;
+                        if (actualSearchTime < 0.01f)
+                            actualSearchTime = 0.01f;
 
                         // 使用计算后的延迟（可包含随机范围）
                         try
@@ -186,8 +326,7 @@ namespace QuickPrice.Patches
                         Item currentItem;
                         if (GetUnknownItem(__instance, out currentItem))
                         {
-                            var discoverMethod = AccessTools.Method(typeof(GClass3515), "DiscoverItem");
-                            discoverMethod?.Invoke(__instance, new object[] { currentItem });
+                            __instance.DiscoverItem(currentItem);
                         }
                     }
 
@@ -247,6 +386,39 @@ namespace QuickPrice.Patches
                 }
 
                 return baseTime + randomDelay;
+            }
+
+            /// <summary>
+            /// 发现物品时播放自定义搜索音效（非秒搜）
+            /// </summary>
+            [HarmonyPatch(typeof(GClass3515), "DiscoverItem")]
+            public static class DiscoverItemSoundPatch
+            {
+                [HarmonyPostfix]
+                public static void Postfix(GClass3515 __instance, Item item)
+                {
+                    if (!Settings.EnableSearchSound.Value)
+                    {
+                        ClientLog.Debug("🔊 DiscoverItemSound skipped: EnableSearchSound=false");
+                        return;
+                    }
+
+                    if (__instance.Bool_0)
+                    {
+                        ClientLog.Debug("🔊 DiscoverItemSound skipped: Bool_0=true");
+                        return;
+                    }
+
+                    try
+                    {
+                        ClientLog.Debug($"🔊 DiscoverItemSound: item={item?.TemplateId ?? "null"}");
+                        SearchSoundPatch.TryPlayCustomSound(item);
+                    }
+                    catch (Exception ex)
+                    {
+                        Plugin.Log.LogError($"搜索音效播放失败: {ex.Message}");
+                    }
+                }
             }
             /// <summary>
             /// 根据物品价格计算等级（1-6）- 复用你已有的逻辑

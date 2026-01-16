@@ -327,6 +327,15 @@ namespace QuickPrice
                 new SessionResultExitStatusPatch().Enable();
                 // Log.LogInfo("✅ 结算文本注入测试补丁已启用");
 
+                // 注册战局装备价值追踪补丁
+                new GameWorldEquipmentTrackerPatch().Enable();
+                new GameWorldEquipmentTrackerCleanupPatch().Enable();
+                // Log.LogInfo("✅ 装备价值追踪补丁已启用");
+
+                // 注册血条结算信息 UI 补丁
+                new RaidSummaryHealthParametersPanelShowPatch().Enable();
+                // Log.LogInfo("✅ 血条结算 UI 补丁已启用");
+
                 // 注册自定义颜色转换补丁（必须在背景色补丁之前启用）
                 new CustomColorConverterPatch().Enable();
                 // Log.LogInfo("✅ 自定义颜色转换补丁已启用");

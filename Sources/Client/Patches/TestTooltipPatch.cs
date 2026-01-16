@@ -31,6 +31,17 @@ namespace QuickPrice.Patches
         public TextMeshProUGUI Label;
         public readonly System.Collections.Generic.List<Image> Separators = new System.Collections.Generic.List<Image>();
         public readonly System.Collections.Generic.List<int> SeparatorLineIndexes = new System.Collections.Generic.List<int>();
+        public SimpleTooltip Tooltip;
+        public int PendingUpdates;
+
+        private void LateUpdate()
+        {
+            if (!Enabled || Tooltip == null || PendingUpdates <= 0)
+                return;
+
+            PendingUpdates--;
+            PriceTooltipPatch.UpdateTooltipSeparator(Tooltip);
+        }
     }
 
     /// <summary>
@@ -233,6 +244,45 @@ namespace QuickPrice.Patches
             return ShouldUseUnitPriceOnly(stackCount) ? 1 : stackCount;
         }
 
+        private static bool ShouldHideRagfairPriceForNonFIR(Item item)
+        {
+            if (item == null)
+                return false;
+
+            bool hide = Settings.HideRagfairPriceForNonFIRItems?.Value ?? false;
+            return hide && !item.SpawnedInSession;
+        }
+
+        private static bool ShouldShowRagfairPriceForDisplay(Item item)
+        {
+            if (item == null)
+                return false;
+
+            if (ShouldHideRagfairPriceForNonFIR(item))
+                return false;
+
+            return RagfairHelper.ShouldShowRagfairPrice(item);
+        }
+
+        private static double? GetPreferredPriceForDisplay(Item item, double? fleaPrice, double? traderPrice)
+        {
+            if (item == null)
+                return fleaPrice ?? traderPrice;
+
+            if (ShouldHideRagfairPriceForNonFIR(item))
+                return traderPrice ?? fleaPrice;
+
+            return fleaPrice ?? traderPrice;
+        }
+
+        private static double? GetTraderPriceValue(Item item)
+        {
+            if (item == null)
+                return null;
+
+            return TraderPriceService.Instance.GetBestTraderPrice(item)?.PriceInRoubles;
+        }
+
         private static string InsertSeparatorMarkerAfterTitle(string text)
         {
             if (string.IsNullOrEmpty(text))
@@ -266,14 +316,9 @@ namespace QuickPrice.Patches
                 return;
             }
 
-            if (sb[sb.Length - 1] == '\n')
-            {
+            if (sb[sb.Length - 1] != '\n')
                 sb.Append('\n');
-            }
-            else
-            {
-                sb.Append("\n\n");
-            }
+
             sb.Append(TooltipSeparatorMarker);
         }
 
@@ -303,11 +348,18 @@ namespace QuickPrice.Patches
             if (!enabled)
             {
                 state.SeparatorLineIndexes.Clear();
+                state.Tooltip = null;
+                state.PendingUpdates = 0;
                 HideSeparators(state);
+            }
+            else
+            {
+                state.Tooltip = tooltip;
+                state.PendingUpdates = 2;
             }
         }
 
-        private static void UpdateTooltipSeparator(SimpleTooltip tooltip)
+        internal static void UpdateTooltipSeparator(SimpleTooltip tooltip)
         {
             if (tooltip == null)
                 return;
@@ -388,15 +440,6 @@ namespace QuickPrice.Patches
 
         private static int ResolveSeparatorLineIndex(TMP_TextInfo textInfo, int markerLineIndex)
         {
-            if (textInfo == null)
-                return markerLineIndex;
-
-            if (markerLineIndex > 0 && textInfo.lineInfo[markerLineIndex - 1].characterCount == 0)
-                return markerLineIndex - 1;
-
-            if (markerLineIndex + 1 < textInfo.lineCount && textInfo.lineInfo[markerLineIndex + 1].characterCount == 0)
-                return markerLineIndex + 1;
-
             return markerLineIndex;
         }
 
@@ -406,26 +449,35 @@ namespace QuickPrice.Patches
                 return;
 
             int tokenLength = TooltipSeparatorToken.Length;
+            int maxCharIndex = textInfo.characterInfo?.Length ?? 0;
             for (int lineIndex = 0; lineIndex < textInfo.lineCount; lineIndex++)
             {
                 var lineInfo = textInfo.lineInfo[lineIndex];
-                if (lineInfo.characterCount != tokenLength)
+                if (lineInfo.characterCount < tokenLength)
                     continue;
 
                 int start = lineInfo.firstCharacterIndex;
-                bool match = true;
-                for (int i = 0; i < tokenLength; i++)
+                int endExclusive = start + lineInfo.characterCount;
+                if (start < 0 || endExclusive > maxCharIndex)
+                    continue;
+
+                for (int i = 0; i <= lineInfo.characterCount - tokenLength; i++)
                 {
-                    if (textInfo.characterInfo[start + i].character != TooltipSeparatorToken[i])
+                    bool match = true;
+                    for (int j = 0; j < tokenLength; j++)
                     {
-                        match = false;
+                        if (textInfo.characterInfo[start + i + j].character != TooltipSeparatorToken[j])
+                        {
+                            match = false;
+                            break;
+                        }
+                    }
+
+                    if (match)
+                    {
+                        lineIndexes.Add(lineIndex);
                         break;
                     }
-                }
-
-                if (match)
-                {
-                    lineIndexes.Add(lineIndex);
                 }
             }
         }
@@ -525,15 +577,17 @@ namespace QuickPrice.Patches
                 if (item is Weapon weapon)
                 {
                     // 武器：按单格价值着色（武器 + 配件）
-                    var weaponPrice = PriceDataService.Instance.GetPrice(weapon.TemplateId);
-                    if (weaponPrice.HasValue)
+                    var weaponFleaPrice = PriceDataService.Instance.GetPrice(weapon.TemplateId);
+                    var weaponTraderPrice = GetTraderPriceValue(weapon);
+                    var weaponDisplayPrice = GetPreferredPriceForDisplay(weapon, weaponFleaPrice, weaponTraderPrice);
+                    if (weaponDisplayPrice.HasValue)
                     {
                         double modsPrice = 0;
                         if (Settings.ShowWeaponModsPrice.Value)
                         {
                             modsPrice = PriceCalculator.CalculateWeaponModsPrice(weapon);
                         }
-                        double totalPrice = weaponPrice.Value + modsPrice;
+                        double totalPrice = weaponDisplayPrice.Value + modsPrice;
 
                         // 计算单格价值
                         int weaponSlots = weapon.Width * weapon.Height;
@@ -569,11 +623,13 @@ namespace QuickPrice.Patches
                     else
                     {
                         // 否则按单格价值着色
-                        var boxPrice = PriceDataService.Instance.GetPrice(ammoBox.TemplateId);
-                        if (boxPrice.HasValue)
+                        var boxFleaPrice = PriceDataService.Instance.GetPrice(ammoBox.TemplateId);
+                        var boxTraderPrice = GetTraderPriceValue(ammoBox);
+                        var boxDisplayPrice = GetPreferredPriceForDisplay(ammoBox, boxFleaPrice, boxTraderPrice);
+                        if (boxDisplayPrice.HasValue)
                         {
                             int ammoBoxSlots = ammoBox.Width * ammoBox.Height;
-                            double pricePerSlot = ammoBoxSlots > 0 ? boxPrice.Value / ammoBoxSlots : boxPrice.Value;
+                            double pricePerSlot = ammoBoxSlots > 0 ? boxDisplayPrice.Value / ammoBoxSlots : boxDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
                         }
                     }
@@ -604,11 +660,13 @@ namespace QuickPrice.Patches
                     else
                     {
                         // 否则按单格价值着色
-                        var magPrice = PriceDataService.Instance.GetPrice(magazine.TemplateId);
-                        if (magPrice.HasValue)
+                        var magFleaPrice = PriceDataService.Instance.GetPrice(magazine.TemplateId);
+                        var magTraderPrice = GetTraderPriceValue(magazine);
+                        var magDisplayPrice = GetPreferredPriceForDisplay(magazine, magFleaPrice, magTraderPrice);
+                        if (magDisplayPrice.HasValue)
                         {
                             int magSlots = magazine.Width * magazine.Height;
-                            double pricePerSlot = magSlots > 0 ? magPrice.Value / magSlots : magPrice.Value;
+                            double pricePerSlot = magSlots > 0 ? magDisplayPrice.Value / magSlots : magDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
                         }
                     }
@@ -623,11 +681,13 @@ namespace QuickPrice.Patches
                     else
                     {
                         // 否则按单格价值着色
-                        var ammoPrice = PriceDataService.Instance.GetPrice(ammo.TemplateId);
-                        if (ammoPrice.HasValue)
+                        var ammoFleaPrice = PriceDataService.Instance.GetPrice(ammo.TemplateId);
+                        var ammoTraderPrice = GetTraderPriceValue(ammo);
+                        var ammoDisplayPrice = GetPreferredPriceForDisplay(ammo, ammoFleaPrice, ammoTraderPrice);
+                        if (ammoDisplayPrice.HasValue)
                         {
                             int stackCount = GetEffectiveStackCount(ammo.StackObjectsCount);
-                            double totalPrice = ammoPrice.Value * stackCount;
+                            double totalPrice = ammoDisplayPrice.Value * stackCount;
                             int ammoSlots = ammo.Width * ammo.Height;
                             double pricePerSlot = ammoSlots > 0 ? totalPrice / ammoSlots : totalPrice;
                             coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
@@ -648,11 +708,13 @@ namespace QuickPrice.Patches
                     else
                     {
                         // 否则按单格价值着色
-                        var armorPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
-                        if (armorPrice.HasValue)
+                        var armorFleaPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
+                        var armorTraderPrice = GetTraderPriceValue(item);
+                        var armorDisplayPrice = GetPreferredPriceForDisplay(item, armorFleaPrice, armorTraderPrice);
+                        if (armorDisplayPrice.HasValue)
                         {
                             int armorSlots = item.Width * item.Height;
-                            double pricePerSlot = armorSlots > 0 ? armorPrice.Value / armorSlots : armorPrice.Value;
+                            double pricePerSlot = armorSlots > 0 ? armorDisplayPrice.Value / armorSlots : armorDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
                         }
                     }
@@ -671,11 +733,13 @@ namespace QuickPrice.Patches
                     else
                     {
                         // 否则按单格价值着色
-                        var platePrice = PriceDataService.Instance.GetPrice(item.TemplateId);
-                        if (platePrice.HasValue)
+                        var plateFleaPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
+                        var plateTraderPrice = GetTraderPriceValue(item);
+                        var plateDisplayPrice = GetPreferredPriceForDisplay(item, plateFleaPrice, plateTraderPrice);
+                        if (plateDisplayPrice.HasValue)
                         {
                             int plateSlots = item.Width * item.Height;
-                            double pricePerSlot = plateSlots > 0 ? platePrice.Value / plateSlots : platePrice.Value;
+                            double pricePerSlot = plateSlots > 0 ? plateDisplayPrice.Value / plateSlots : plateDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
                         }
                     }
@@ -683,11 +747,13 @@ namespace QuickPrice.Patches
                 else
                 {
                     // 普通物品：按单格价值着色
-                    var price = PriceDataService.Instance.GetPrice(item.TemplateId);
-                    if (price.HasValue)
+                    var fleaPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
+                    var traderPrice = GetTraderPriceValue(item);
+                    var displayPrice = GetPreferredPriceForDisplay(item, fleaPrice, traderPrice);
+                    if (displayPrice.HasValue)
                     {
                         int stackCount = GetEffectiveStackCount(item.StackObjectsCount);
-                        double totalPrice = price.Value * stackCount;
+                        double totalPrice = displayPrice.Value * stackCount;
                         int itemSlots = item.Width * item.Height;
                         double pricePerSlot = itemSlots > 0 ? totalPrice / itemSlots : totalPrice;
                         coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
@@ -774,8 +840,9 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取武器本体价格
-            var weaponPrice = PriceDataService.Instance.GetPrice(weapon.TemplateId);
-            if (!weaponPrice.HasValue)
+            var weaponFleaPrice = PriceDataService.Instance.GetPrice(weapon.TemplateId);
+            var weaponTraderPrice = GetTraderPriceValue(weapon);
+            if (!weaponFleaPrice.HasValue && !weaponTraderPrice.HasValue)
                 return "";
 
             // 计算配件总价
@@ -786,13 +853,15 @@ namespace QuickPrice.Patches
             }
 
             // 总价 = 武器 + 配件
-            double totalPrice = weaponPrice.Value + modsPrice;
+            double totalPrice = (weaponFleaPrice ?? 0) + modsPrice;
+            double displayWeaponPrice = GetPreferredPriceForDisplay(weapon, weaponFleaPrice, weaponTraderPrice) ?? 0;
+            double displayTotalPrice = displayWeaponPrice + modsPrice;
 
             // 计算单格价值（用于颜色编码）
-            double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
+            double pricePerSlotForColor = slots > 0 ? displayTotalPrice / slots : displayTotalPrice;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(weapon);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(weapon) && weaponFleaPrice.HasValue;
 
             // 显示总价（仅当不禁售时）
             if (showRagfairPrice)
@@ -823,7 +892,7 @@ namespace QuickPrice.Patches
             }
 
             // 显示枪械本体价格
-            sb.Append($"\n枪械价格: {TextFormatting.FormatPrice(weaponPrice.Value)}");
+            sb.Append($"\n枪械价格: {TextFormatting.FormatPrice(displayWeaponPrice)}");
 
             // 显示配件总价（如果有配件且启用）
             if (Settings.ShowWeaponModsPrice.Value && modsPrice > 0)
@@ -1056,20 +1125,22 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取价格
-            var price = PriceDataService.Instance.GetPrice(item.TemplateId);
-            if (!price.HasValue)
+            var fleaPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
+            var traderPrice = GetTraderPriceValue(item);
+            var displayPrice = GetPreferredPriceForDisplay(item, fleaPrice, traderPrice);
+            if (!displayPrice.HasValue)
                 return "";
 
             // 计算单格价值（用于颜色编码）
-            double pricePerSlotForColor = slots > 0 ? price.Value / slots : price.Value;
+            double pricePerSlotForColor = slots > 0 ? displayPrice.Value / slots : displayPrice.Value;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(item);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(item) && fleaPrice.HasValue;
 
             // 显示跳蚤市场价格（仅当不禁售时）
             if (showRagfairPrice)
             {
-                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(price.Value)}";
+                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(fleaPrice.Value)}";
                 priceText = AppendRagfairBanLabel(priceText, item);
                 if (Settings.EnableColorCoding.Value)
                 {
@@ -1090,7 +1161,7 @@ namespace QuickPrice.Patches
             // 只有多格物品才显示单格价值
             if (Settings.ShowPricePerSlot.Value && slots > 1)
             {
-                double pricePerSlot = price.Value / slots;
+                double pricePerSlot = displayPrice.Value / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
@@ -1107,25 +1178,28 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取单价
-            var unitPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
-            if (!unitPrice.HasValue)
+            var fleaUnitPrice = PriceDataService.Instance.GetPrice(item.TemplateId);
+            var traderPrice = GetTraderPriceValue(item);
+            var displayUnitPrice = GetPreferredPriceForDisplay(item, fleaUnitPrice, traderPrice);
+            if (!displayUnitPrice.HasValue)
                 return "";
 
             int stackCount = item.StackObjectsCount;
             bool isUnitPriceOnly = ShouldUseUnitPriceOnly(stackCount);
             int effectiveCount = GetEffectiveStackCount(stackCount);
-            double totalPrice = unitPrice.Value * effectiveCount;
+            double totalPrice = displayUnitPrice.Value * effectiveCount;
+            double totalFleaPrice = fleaUnitPrice.HasValue ? fleaUnitPrice.Value * effectiveCount : totalPrice;
 
             // 计算单格价值（用于颜色编码）
             double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(item);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(item) && fleaUnitPrice.HasValue;
 
             // 显示堆叠总价（仅当不禁售时）
             if (showRagfairPrice)
             {
-                string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                string totalPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalFleaPrice)}";
                 if (!isUnitPriceOnly && stackCount > 1)
                 {
                     totalPriceText += $" (x{stackCount})";
@@ -1142,7 +1216,7 @@ namespace QuickPrice.Patches
                 sb.Append($"\n{totalPriceText}");
 
                 // 显示单价
-                sb.Append($"\n单价: {TextFormatting.FormatPrice(unitPrice.Value)}");
+                sb.Append($"\n单价: {TextFormatting.FormatPrice(fleaUnitPrice.Value)}");
             }
 
             AppendRagfairBanLineIfNeeded(sb, item, showRagfairPrice);
@@ -1178,8 +1252,10 @@ namespace QuickPrice.Patches
             // }
 
             // 获取弹匣本体价格
-            var boxPrice = PriceDataService.Instance.GetPrice(ammoBox.TemplateId);
-            if (!boxPrice.HasValue)
+            var boxFleaPrice = PriceDataService.Instance.GetPrice(ammoBox.TemplateId);
+            var boxTraderPrice = GetTraderPriceValue(ammoBox);
+            var boxDisplayPrice = GetPreferredPriceForDisplay(ammoBox, boxFleaPrice, boxTraderPrice);
+            if (!boxDisplayPrice.HasValue)
             {
                 ClientLog.Warning($"⚠️ 弹匣 {ammoBox.LocalizedName()} 没有价格数据");
                 return "";
@@ -1187,6 +1263,7 @@ namespace QuickPrice.Patches
 
             // 计算子弹总价
             double ammosPrice = 0;
+            double ammosDisplayPrice = 0;
             int ammoCount = ammoBox.Count;  // ✅ 使用 AmmoBox.Count 获取实际子弹数量
             int? avgPenetration = null;
             AmmoItemClass firstAmmo = null;  // 保存第一颗子弹的引用，用于显示详细信息
@@ -1212,15 +1289,22 @@ namespace QuickPrice.Patches
                         int stackCount = ammoItem.StackObjectsCount;
                         // Plugin.Log.LogDebug($"    - 子弹: {ammoItem.LocalizedName()} x{stackCount}");
 
-                        var ammoPrice = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
-                        if (ammoPrice.HasValue)
+                        var ammoFleaPrice = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
+                        var ammoTraderPrice = GetTraderPriceValue(ammoItem);
+                        var ammoDisplayPrice = GetPreferredPriceForDisplay(ammoItem, ammoFleaPrice, ammoTraderPrice);
+                        if (ammoFleaPrice.HasValue)
                         {
-                            ammosPrice += ammoPrice.Value * stackCount;  // ✅ 价格 × 堆叠数量
+                            ammosPrice += ammoFleaPrice.Value * stackCount;  // ✅ 价格 × 堆叠数量
                             // Plugin.Log.LogDebug($"      价格: {ammoPrice.Value:N0}₽ x{stackCount} = {ammoPrice.Value * stackCount:N0}₽");
                         }
                         else
                         {
                             ClientLog.Warning($"      ⚠️ 子弹 {ammoItem.LocalizedName()} 没有价格数据");
+                        }
+
+                        if (ammoDisplayPrice.HasValue)
+                        {
+                            ammosDisplayPrice += ammoDisplayPrice.Value * stackCount;
                         }
 
                         // 计算加权平均穿甲值
@@ -1246,13 +1330,14 @@ namespace QuickPrice.Patches
             }
 
             // 总价 = 弹匣 + 子弹
-            double totalPrice = boxPrice.Value + ammosPrice;
+            double totalPrice = (boxFleaPrice ?? 0) + ammosPrice;
+            double displayTotalPrice = boxDisplayPrice.Value + ammosDisplayPrice;
 
             // 计算单格价值（用于颜色编码）
-            double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
+            double pricePerSlotForColor = slots > 0 ? displayTotalPrice / slots : displayTotalPrice;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(ammoBox);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(ammoBox) && boxFleaPrice.HasValue;
 
             // 显示总价（仅当不禁售时）
             if (showRagfairPrice)
@@ -1280,12 +1365,12 @@ namespace QuickPrice.Patches
             AppendTraderPriceIfEnabled(sb, ammoBox);
 
             // 显示弹药包/弹匣价值
-            sb.Append($"\n弹药包价值: {TextFormatting.FormatPrice(boxPrice.Value)}");
+            sb.Append($"\n弹药包价值: {TextFormatting.FormatPrice(boxDisplayPrice.Value)}");
 
             // 显示子弹详细信息
             if (ammoCount > 0)
             {
-                sb.Append($"\n子弹价值: {TextFormatting.FormatPrice(ammosPrice)} (x{ammoCount})");
+                sb.Append($"\n子弹价值: {TextFormatting.FormatPrice(ammosDisplayPrice)} (x{ammoCount})");
 
                 // 如果有子弹信息，显示详细信息
                 if (firstAmmo != null)
@@ -1318,7 +1403,7 @@ namespace QuickPrice.Patches
                     // 单发价格
                     if (ammoCount > 0)
                     {
-                        double pricePerRound = (boxPrice.Value + ammosPrice) / ammoCount;
+                        double pricePerRound = displayTotalPrice / ammoCount;
                         sb.Append($"\n单发价格: {TextFormatting.FormatPrice(pricePerRound)}");
                     }
                 }
@@ -1327,7 +1412,7 @@ namespace QuickPrice.Patches
             // 显示单格价值
             if (Settings.ShowPricePerSlot.Value && slots > 1)
             {
-                double pricePerSlot = totalPrice / slots;
+                double pricePerSlot = displayTotalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
@@ -1370,8 +1455,10 @@ namespace QuickPrice.Patches
             // Plugin.Log.LogInfo($"  - 尝试 MaxCount 属性: {magazine.MaxCount}");
 
             // 获取弹匣本体价格
-            var magPrice = PriceDataService.Instance.GetPrice(magazine.TemplateId);
-            if (!magPrice.HasValue)
+            var magFleaPrice = PriceDataService.Instance.GetPrice(magazine.TemplateId);
+            var magTraderPrice = GetTraderPriceValue(magazine);
+            var magDisplayPrice = GetPreferredPriceForDisplay(magazine, magFleaPrice, magTraderPrice);
+            if (!magDisplayPrice.HasValue)
             {
                 ClientLog.Warning($"⚠️ 弹匣 {magazine.LocalizedName()} 没有价格数据");
                 return "";
@@ -1379,6 +1466,7 @@ namespace QuickPrice.Patches
 
             // 计算子弹总价和数量（支持混装弹匣）
             double ammosPrice = 0;
+            double ammosDisplayPrice = 0;
             int ammoCount = magazine.Count; // 弹匣内子弹总数
             int totalPenetration = 0;
             int totalAmmoForPenetration = 0;
@@ -1403,11 +1491,23 @@ namespace QuickPrice.Patches
                         // Plugin.Log.LogInfo($"      堆叠数量: {stackCount}");
 
                         // 获取子弹单价
-                        var ammoUnitPrice = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
-                        if (ammoUnitPrice.HasValue)
+                        var ammoFleaPrice = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
+                        var ammoTraderPrice = GetTraderPriceValue(ammoItem);
+                        var ammoDisplayPrice = GetPreferredPriceForDisplay(ammoItem, ammoFleaPrice, ammoTraderPrice);
+                        if (ammoFleaPrice.HasValue)
                         {
-                            double itemTotalPrice = ammoUnitPrice.Value * stackCount;
+                            double itemTotalPrice = ammoFleaPrice.Value * stackCount;
                             ammosPrice += itemTotalPrice;
+                        }
+                        else
+                        {
+                            // ClientLog.Warning($"      ⚠️ 子弹 {ammoItem.LocalizedName()} 没有价格数据");
+                        }
+
+                        if (ammoDisplayPrice.HasValue)
+                        {
+                            double displayItemTotalPrice = ammoDisplayPrice.Value * stackCount;
+                            ammosDisplayPrice += displayItemTotalPrice;
 
                             // 保存子弹详细信息
                             ammoDetails.Add((
@@ -1415,15 +1515,8 @@ namespace QuickPrice.Patches
                                 ammoItem.PenetrationPower,
                                 ammoItem.Damage,
                                 stackCount,
-                                itemTotalPrice
+                                displayItemTotalPrice
                             ));
-
-                            // Plugin.Log.LogInfo($"      单价: {ammoUnitPrice.Value:N0}₽");
-                            // Plugin.Log.LogInfo($"      小计: {itemTotalPrice:N0}₽ ({ammoUnitPrice.Value:N0}₽ × {stackCount})");
-                        }
-                        else
-                        {
-                            // ClientLog.Warning($"      ⚠️ 子弹 {ammoItem.LocalizedName()} 没有价格数据");
                         }
 
                         // 计算加权平均穿甲值
@@ -1454,13 +1547,14 @@ namespace QuickPrice.Patches
             }
 
             // 总价 = 弹匣 + 子弹
-            double totalPrice = magPrice.Value + ammosPrice;
+            double totalPrice = (magFleaPrice ?? 0) + ammosPrice;
+            double displayTotalPrice = magDisplayPrice.Value + ammosDisplayPrice;
 
             // 计算单格价值（用于颜色编码）
-            double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
+            double pricePerSlotForColor = slots > 0 ? displayTotalPrice / slots : displayTotalPrice;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(magazine);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(magazine) && magFleaPrice.HasValue;
 
             // 显示总价（仅当不禁售时）
             if (showRagfairPrice)
@@ -1488,12 +1582,12 @@ namespace QuickPrice.Patches
             AppendTraderPriceIfEnabled(sb, magazine);
 
             // 显示弹匣价值
-            sb.Append($"\n弹匣价值: {TextFormatting.FormatPrice(magPrice.Value)}");
+            sb.Append($"\n弹匣价值: {TextFormatting.FormatPrice(magDisplayPrice.Value)}");
 
             // 显示子弹价值（详细列出每种子弹）
             if (ammoCount > 0)
             {
-                sb.Append($"\n子弹价值: {TextFormatting.FormatPrice(ammosPrice)}");
+                sb.Append($"\n子弹价值: {TextFormatting.FormatPrice(ammosDisplayPrice)}");
 
                 // 显示子弹详情（参考配件展示格式）
                 AppendTooltipSeparator(sb);
@@ -1536,25 +1630,28 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取价格
-            var price = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
-            if (!price.HasValue)
+            var fleaPrice = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
+            var traderPrice = GetTraderPriceValue(ammoItem);
+            var displayUnitPrice = GetPreferredPriceForDisplay(ammoItem, fleaPrice, traderPrice);
+            if (!displayUnitPrice.HasValue)
                 return "";
 
             int stackCount = ammoItem.StackObjectsCount;
             bool isUnitPriceOnly = ShouldUseUnitPriceOnly(stackCount);
             int effectiveCount = GetEffectiveStackCount(stackCount);
-            double totalPrice = price.Value * effectiveCount;
+            double totalPrice = displayUnitPrice.Value * effectiveCount;
+            double totalFleaPrice = fleaPrice.HasValue ? fleaPrice.Value * effectiveCount : totalPrice;
 
             // 计算单格价值（用于颜色编码）
             double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(ammoItem);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(ammoItem) && fleaPrice.HasValue;
 
             // 显示价格（仅当不禁售时）
             if (showRagfairPrice)
             {
-                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalPrice)}";
+                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(totalFleaPrice)}";
                 if (!isUnitPriceOnly && stackCount > 1)
                 {
                     priceText += $" (x{stackCount})";
@@ -1585,7 +1682,7 @@ namespace QuickPrice.Patches
             // 如果是堆叠，显示单价
             if (stackCount > 1)
             {
-                sb.Append($"\n单价: {TextFormatting.FormatPrice(price.Value)}");
+                sb.Append($"\n单价: {TextFormatting.FormatPrice(displayUnitPrice.Value)}");
             }
 
             // 显示穿透力
@@ -1613,20 +1710,22 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取护甲价格
-            var armorPrice = PriceDataService.Instance.GetPrice(armor.TemplateId);
-            if (!armorPrice.HasValue)
+            var armorFleaPrice = PriceDataService.Instance.GetPrice(armor.TemplateId);
+            var armorTraderPrice = GetTraderPriceValue(armor);
+            var armorDisplayPrice = GetPreferredPriceForDisplay(armor, armorFleaPrice, armorTraderPrice);
+            if (!armorDisplayPrice.HasValue)
                 return "";
 
             // 计算单格价值（用于颜色编码）
-            double pricePerSlotForColor = slots > 0 ? armorPrice.Value / slots : armorPrice.Value;
+            double pricePerSlotForColor = slots > 0 ? armorDisplayPrice.Value / slots : armorDisplayPrice.Value;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(armor);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(armor) && armorFleaPrice.HasValue;
 
             // 显示跳蚤市场价格（仅当不禁售时）
             if (showRagfairPrice)
             {
-                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(armorPrice.Value)}";
+                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(armorFleaPrice.Value)}";
                 priceText = AppendRagfairBanLabel(priceText, armor);
                 if (Settings.EnableColorCoding.Value)
                 {
@@ -1647,7 +1746,7 @@ namespace QuickPrice.Patches
             // 显示单格价值（如果启用）
             if (Settings.ShowPricePerSlot.Value && slots > 1)
             {
-                double pricePerSlot = armorPrice.Value / slots;
+                double pricePerSlot = armorDisplayPrice.Value / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
@@ -1698,20 +1797,22 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取插板价格
-            var platePrice = PriceDataService.Instance.GetPrice(plate.TemplateId);
-            if (!platePrice.HasValue)
+            var plateFleaPrice = PriceDataService.Instance.GetPrice(plate.TemplateId);
+            var plateTraderPrice = GetTraderPriceValue(plate);
+            var plateDisplayPrice = GetPreferredPriceForDisplay(plate, plateFleaPrice, plateTraderPrice);
+            if (!plateDisplayPrice.HasValue)
                 return "";
 
             // 计算单格价值（用于颜色编码）
-            double pricePerSlotForColor = slots > 0 ? platePrice.Value / slots : platePrice.Value;
+            double pricePerSlotForColor = slots > 0 ? plateDisplayPrice.Value / slots : plateDisplayPrice.Value;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(plate);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(plate) && plateFleaPrice.HasValue;
 
             // 显示跳蚤市场价格（仅当不禁售时）
             if (showRagfairPrice)
             {
-                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(platePrice.Value)}";
+                string priceText = $"跳蚤市场: {TextFormatting.FormatPrice(plateFleaPrice.Value)}";
                 priceText = AppendRagfairBanLabel(priceText, plate);
                 if (Settings.EnableColorCoding.Value)
                 {
@@ -1732,7 +1833,7 @@ namespace QuickPrice.Patches
             // 显示单格价值（如果启用）
             if (Settings.ShowPricePerSlot.Value && slots > 1)
             {
-                double pricePerSlot = platePrice.Value / slots;
+                double pricePerSlot = plateDisplayPrice.Value / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
@@ -1765,8 +1866,10 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取配件本体价格
-            var modPrice = PriceDataService.Instance.GetPrice(mod.TemplateId);
-            if (!modPrice.HasValue)
+            var modFleaPrice = PriceDataService.Instance.GetPrice(mod.TemplateId);
+            var modTraderPrice = GetTraderPriceValue(mod);
+            var modDisplayPrice = GetPreferredPriceForDisplay(mod, modFleaPrice, modTraderPrice);
+            if (!modDisplayPrice.HasValue)
                 return "";
 
             // 计算子配件总价
@@ -1793,13 +1896,14 @@ namespace QuickPrice.Patches
             }
 
             // 总价 = 配件本体 + 子配件
-            double totalPrice = modPrice.Value + childModsPrice;
+            double totalPrice = (modFleaPrice ?? 0) + childModsPrice;
+            double displayTotalPrice = modDisplayPrice.Value + childModsPrice;
 
             // 计算单格价值（用于颜色编码）
-            double pricePerSlotForColor = slots > 0 ? totalPrice / slots : totalPrice;
+            double pricePerSlotForColor = slots > 0 ? displayTotalPrice / slots : displayTotalPrice;
 
             // 检查是否可以在跳蚤市场出售
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(mod);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(mod) && modFleaPrice.HasValue;
 
             // 显示总价（仅当不禁售时）
             if (showRagfairPrice)
@@ -1825,12 +1929,12 @@ namespace QuickPrice.Patches
             // 显示单格价值（如果启用）
             if (Settings.ShowPricePerSlot.Value && slots > 1)
             {
-                double pricePerSlot = totalPrice / slots;
+                double pricePerSlot = displayTotalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
             // 显示配件本体价格
-            sb.Append($"\n配件价格: {TextFormatting.FormatPrice(modPrice.Value)}");
+            sb.Append($"\n配件价格: {TextFormatting.FormatPrice(modDisplayPrice.Value)}");
 
             // 显示子配件总价（如果有子配件且启用）
             if (Settings.ShowWeaponModsPrice.Value && childModsPrice > 0)
@@ -1997,25 +2101,27 @@ namespace QuickPrice.Patches
             var sb = new StringBuilder();
 
             // 获取容器本身价格
-            var containerPrice = PriceDataService.Instance.GetPrice(container.TemplateId);
-            if (!containerPrice.HasValue)
+            var containerFleaPrice = PriceDataService.Instance.GetPrice(container.TemplateId);
+            var containerTraderPrice = GetTraderPriceValue(container);
+            var containerDisplayPrice = GetPreferredPriceForDisplay(container, containerFleaPrice, containerTraderPrice);
+            if (!containerDisplayPrice.HasValue)
             {
                 return "";
             }
 
             // 检查是否可以在跳蚤市场出售（统一定义在最外层）
-            bool showRagfairPrice = RagfairHelper.ShouldShowRagfairPrice(container);
+            bool showRagfairPrice = ShouldShowRagfairPriceForDisplay(container) && containerFleaPrice.HasValue;
 
             // ===== 新增：检查是否完全禁用容器内物品计算 =====
             if (!Settings.EnableContainerPriceCalculation.Value)
             {
                 // 完全禁用容器内物品计算：仅显示容器本身价格
-                double pricePerSlotForColor = slots > 0 ? containerPrice.Value / slots : containerPrice.Value;
+                double pricePerSlotForColor = slots > 0 ? containerDisplayPrice.Value / slots : containerDisplayPrice.Value;
 
                 // 显示容器本身价格（仅当不禁售时）
                 if (showRagfairPrice)
                 {
-                    string containerPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(containerPrice.Value)}";
+                    string containerPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}";
                     containerPriceText = AppendRagfairBanLabel(containerPriceText, container);
                     if (Settings.EnableColorCoding.Value)
                     {
@@ -2036,12 +2142,12 @@ namespace QuickPrice.Patches
                 // 显示单格价值（如果启用）
                 if (Settings.ShowPricePerSlot.Value && slots > 1)
                 {
-                    double pricePerSlot = containerPrice.Value / slots;
+                    double pricePerSlot = containerDisplayPrice.Value / slots;
                     sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
                 }
 
                 // 显示容器本身价格
-                sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerPrice.Value)}");
+                sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}");
 
                 // 显示提示信息
                 sb.Append($"\nℹ️ 已禁用容器内物品计算");
@@ -2058,12 +2164,12 @@ namespace QuickPrice.Patches
                 estimatedItemCount > Settings.LargeContainerThreshold.Value)
             {
                 // 大容器：仅显示容器本身价格 + 警告
-                double pricePerSlotForColor = slots > 0 ? containerPrice.Value / slots : containerPrice.Value;
+                double pricePerSlotForColor = slots > 0 ? containerDisplayPrice.Value / slots : containerDisplayPrice.Value;
 
                 // 显示容器本身价格（仅当不禁售时）
                 if (showRagfairPrice)
                 {
-                    string containerPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(containerPrice.Value)}";
+                    string containerPriceText = $"跳蚤市场: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}";
                     containerPriceText = AppendRagfairBanLabel(containerPriceText, container);
                     if (Settings.EnableColorCoding.Value)
                     {
@@ -2084,12 +2190,12 @@ namespace QuickPrice.Patches
                 // 显示单格价值（如果启用）
                 if (Settings.ShowPricePerSlot.Value && slots > 1)
                 {
-                    double pricePerSlot = containerPrice.Value / slots;
+                    double pricePerSlot = containerDisplayPrice.Value / slots;
                     sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
                 }
 
                 // 显示容器本身价格
-                sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerPrice.Value)}");
+                sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}");
 
                 // 显示警告信息
                 sb.Append($"\n⚠️ 物品过多（约{estimatedItemCount}个）");
@@ -2104,7 +2210,7 @@ namespace QuickPrice.Patches
             double itemsPrice = CalculateContainerItemsPrice(container, 0, itemCounter);
 
             // 总价 = 容器 + 内部物品
-            double totalPrice = containerPrice.Value + itemsPrice;
+            double totalPrice = containerDisplayPrice.Value + itemsPrice;
 
             // 计算单格价值（用于颜色编码）
             double totalPricePerSlot = slots > 0 ? totalPrice / slots : totalPrice;
@@ -2138,7 +2244,7 @@ namespace QuickPrice.Patches
             }
 
             // 显示容器本身价格
-            sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerPrice.Value)}");
+            sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}");
 
             // 显示容器内物品价值（即使为0也显示）
             sb.Append($"\n内部物品: {TextFormatting.FormatPrice(itemsPrice)}");
@@ -2278,10 +2384,12 @@ namespace QuickPrice.Patches
                         }
 
                         // 获取物品价格
-                        var itemPrice = PriceDataService.Instance.GetPrice(gridItem.TemplateId);
-                        if (itemPrice.HasValue)
+                        var itemFleaPrice = PriceDataService.Instance.GetPrice(gridItem.TemplateId);
+                        var itemTraderPrice = GetTraderPriceValue(gridItem);
+                        var itemDisplayPrice = GetPreferredPriceForDisplay(gridItem, itemFleaPrice, itemTraderPrice);
+                        if (itemDisplayPrice.HasValue)
                         {
-                            double itemValue = itemPrice.Value * gridItem.StackObjectsCount;
+                            double itemValue = itemDisplayPrice.Value * gridItem.StackObjectsCount;
                             total += itemValue;
 
                             // Plugin.Log.LogInfo($"  {new string(' ', depth * 2)}    ✅ 物品 #{itemCounter.Count}: {gridItem.LocalizedName()} = {itemValue:N0}₽");
@@ -2309,9 +2417,11 @@ namespace QuickPrice.Patches
                                     if (cartridge is AmmoItemClass ammoItem)
                                     {
                                         var ammoUnitPrice = PriceDataService.Instance.GetPrice(ammoItem.TemplateId);
-                                        if (ammoUnitPrice.HasValue)
+                                        var ammoTraderPrice = GetTraderPriceValue(ammoItem);
+                                        var ammoDisplayPrice = GetPreferredPriceForDisplay(ammoItem, ammoUnitPrice, ammoTraderPrice);
+                                        if (ammoDisplayPrice.HasValue)
                                         {
-                                            ammoPrice += ammoUnitPrice.Value * ammoItem.StackObjectsCount;
+                                            ammoPrice += ammoDisplayPrice.Value * ammoItem.StackObjectsCount;
                                         }
                                     }
                                 }
