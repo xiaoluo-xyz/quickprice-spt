@@ -22,5 +22,7 @@ namespace QuickPrice.Models
         public int PenetrationThreshold3 { get; set; }
         public int PenetrationThreshold4 { get; set; }
         public int PenetrationThreshold5 { get; set; }
+        public float? RepairCostPriceMultiplier { get; set; }
+        public float? RepairPriceCoefficientPercent { get; set; }
     }
 }

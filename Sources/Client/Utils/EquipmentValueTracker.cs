@@ -9,6 +9,7 @@ using HarmonyLib;
 using QuickPrice.Config;
 using QuickPrice.Logging;
 using QuickPrice.Services;
+using UnityEngine;
 
 namespace QuickPrice.Utils
 {
@@ -20,13 +21,23 @@ namespace QuickPrice.Utils
     {
         private sealed class ItemSnapshot
         {
-            public ItemSnapshot(string itemId, double baseUnitPrice, int stackCount, double relativeValue)
+            public ItemSnapshot(
+                string itemId,
+                double baseUnitPrice,
+                int stackCount,
+                double relativeValue,
+                double? baselineDurability,
+                double? maxDurability,
+                double? durabilityCostPerPoint)
             {
                 ItemId = itemId;
                 BaseUnitPrice = baseUnitPrice;
                 StackCount = stackCount;
                 RelativeValue = relativeValue;
                 BaselineValue = baseUnitPrice * stackCount * relativeValue;
+                BaselineDurability = baselineDurability;
+                MaxDurability = maxDurability;
+                DurabilityCostPerPoint = durabilityCostPerPoint;
             }
 
             public string ItemId { get; }
@@ -34,22 +45,41 @@ namespace QuickPrice.Utils
             public int StackCount { get; }
             public double RelativeValue { get; }
             public double BaselineValue { get; }
+            public double? BaselineDurability { get; }
+            public double? MaxDurability { get; }
+            public double? DurabilityCostPerPoint { get; }
+        }
+
+        private sealed class StackableSnapshot
+        {
+            public StackableSnapshot(string templateId, double unitPrice, int baselineCount)
+            {
+                TemplateId = templateId;
+                UnitPrice = unitPrice;
+                BaselineCount = baselineCount;
+            }
+
+            public string TemplateId { get; }
+            public double UnitPrice { get; set; }
+            public int BaselineCount { get; set; }
         }
 
         private sealed class ItemState
         {
-            public ItemState(string itemId, Item item, int stackCount, double relativeValue)
+            public ItemState(string itemId, Item item, int stackCount, double relativeValue, double? currentDurability)
             {
                 ItemId = itemId;
                 Item = item;
                 StackCount = stackCount;
                 RelativeValue = relativeValue;
+                CurrentDurability = currentDurability;
             }
 
             public string ItemId { get; }
             public Item Item { get; }
             public int StackCount { get; }
             public double RelativeValue { get; }
+            public double? CurrentDurability { get; }
         }
 
         private enum PricePolicy
@@ -78,7 +108,19 @@ namespace QuickPrice.Utils
         private static bool _isInRaid;
         private static bool _raidSnapshotCaptured;
         private static readonly Dictionary<string, ItemSnapshot> _broughtSnapshot = new Dictionary<string, ItemSnapshot>();
+        private static readonly Dictionary<string, StackableSnapshot> _broughtStackableSnapshot = new Dictionary<string, StackableSnapshot>();
+        private static readonly Dictionary<string, StackableSnapshot> _broughtSecureStackableSnapshot = new Dictionary<string, StackableSnapshot>();
         private static readonly HashSet<string> _initialItemIds = new HashSet<string>();
+        private static readonly Dictionary<string, ItemState> _lastKnownStates = new Dictionary<string, ItemState>();
+        private static readonly Dictionary<string, int> _lastKnownStackableCounts = new Dictionary<string, int>();
+        private static readonly Dictionary<string, int> _lastKnownProtectedStackableCounts = new Dictionary<string, int>();
+        private static readonly Dictionary<string, int> _lastKnownSecureStackableCounts = new Dictionary<string, int>();
+        private static readonly HashSet<string> _lastKnownProtectedItemIds = new HashSet<string>();
+        private static readonly HashSet<string> _lastKnownSecureContainerItemIds = new HashSet<string>();
+        private static bool _pendingRecalculate;
+        private static float _lastRecalculateTime;
+        private const float RecalculateDebounceSeconds = 0.2f;
+        private static bool _isUiDragging;
 
         private static readonly System.Reflection.FieldInfo ItemUiContextInventoryField =
             AccessTools.Field(typeof(ItemUiContext), "inventory_0");
@@ -104,6 +146,7 @@ namespace QuickPrice.Utils
             _isInRaid = true;
             _raidSnapshotCaptured = false;
             RaidSummaryMetrics.IsInRaid = true;
+            RaidSummaryMetrics.HasRaidSummary = false;
 
             Subscribe();
             RecalculateValues();
@@ -145,16 +188,146 @@ namespace QuickPrice.Utils
 
         public static void Clear()
         {
+            Clear(true);
+        }
+
+        public static void Clear(bool resetMetrics)
+        {
             Unsubscribe();
             _player = null;
             _inventoryController = null;
             _equipment = null;
             _isInitialized = false;
             _isInRaid = false;
-            _raidSnapshotCaptured = false;
+            if (resetMetrics)
+            {
+                _raidSnapshotCaptured = false;
+            }
+            _pendingRecalculate = false;
+            _lastRecalculateTime = 0f;
+            _isUiDragging = false;
+            if (resetMetrics)
+            {
+                ClearSnapshots();
+                RaidSummaryMetrics.Reset();
+            }
+        }
+
+        public static void FinalizeRaidSummary()
+        {
+            if (!_isInitialized || !_isInRaid)
+                return;
+
+            RecalculateValues();
+        }
+
+        public static void PrepareForExitStatus()
+        {
+            if (!_raidSnapshotCaptured)
+                return;
+
+            _pendingRecalculate = false;
+            if (_isInitialized && _isInRaid)
+            {
+                RecalculateValues();
+            }
+        }
+
+        public static void ApplyExitStatus(ExitStatus exitStatus)
+        {
+            if (!_raidSnapshotCaptured)
+                return;
+
+            var currentStates = _lastKnownStates;
+            if (currentStates == null || currentStates.Count == 0)
+            {
+                if (_equipment != null)
+                {
+                    currentStates = BuildCurrentItemStates(_equipment);
+                }
+            }
+
+            if (currentStates == null || currentStates.Count == 0)
+                return;
+
+            var secureContainerItemIds = _lastKnownSecureContainerItemIds;
+            var protectedItemIds = _lastKnownProtectedItemIds;
+            var stackableCounts = _lastKnownStackableCounts;
+            var secureStackableCounts = _lastKnownSecureStackableCounts;
+            var protectedStackableCounts = _lastKnownProtectedStackableCounts;
+
+            if (_equipment != null)
+            {
+                if (secureContainerItemIds == null || secureContainerItemIds.Count == 0)
+                {
+                    secureContainerItemIds = BuildSecureContainerItemIds(_equipment);
+                }
+
+                if (protectedItemIds == null || protectedItemIds.Count == 0)
+                {
+                    protectedItemIds = BuildProtectedItemIds(_equipment);
+                }
+            }
+
+            if (stackableCounts == null || stackableCounts.Count == 0)
+            {
+                stackableCounts = BuildCurrentStackableCounts(currentStates);
+            }
+
+            if (secureStackableCounts == null || secureStackableCounts.Count == 0)
+            {
+                secureStackableCounts = BuildStackableCountsForItemIds(currentStates, secureContainerItemIds);
+            }
+
+            if (protectedStackableCounts == null || protectedStackableCounts.Count == 0)
+            {
+                protectedStackableCounts = BuildStackableCountsForItemIds(currentStates, protectedItemIds);
+            }
+
+            bool isDeathOutcome = IsDeathExitStatus(exitStatus);
+            long lossValue = CalculateLossValue(
+                currentStates,
+                stackableCounts,
+                isDeathOutcome,
+                protectedItemIds,
+                protectedStackableCounts);
+
+            long lootValue = CalculateLootValue(
+                currentStates,
+                secureContainerItemIds,
+                isDeathOutcome ? secureStackableCounts : stackableCounts,
+                isDeathOutcome);
+
+            RaidSummaryMetrics.LossValue = lossValue;
+            RaidSummaryMetrics.LootValue = lootValue;
+            RaidSummaryMetrics.SettlementValue = lootValue - lossValue;
+            RaidSummaryMetrics.HasRaidSummary = true;
+        }
+
+        public static void ClearRaidSnapshots()
+        {
+            ClearSnapshots();
+        }
+
+        private static void ClearSnapshots()
+        {
             _broughtSnapshot.Clear();
+            _broughtStackableSnapshot.Clear();
+            _broughtSecureStackableSnapshot.Clear();
             _initialItemIds.Clear();
-            RaidSummaryMetrics.Reset();
+            _lastKnownStates.Clear();
+            _lastKnownStackableCounts.Clear();
+            _lastKnownProtectedStackableCounts.Clear();
+            _lastKnownSecureStackableCounts.Clear();
+            _lastKnownProtectedItemIds.Clear();
+            _lastKnownSecureContainerItemIds.Clear();
+        }
+
+        private static bool IsDeathExitStatus(ExitStatus exitStatus)
+        {
+            return exitStatus != ExitStatus.Survived &&
+                   exitStatus != ExitStatus.Runner &&
+                   exitStatus != ExitStatus.Transit;
         }
 
         private static void Subscribe()
@@ -164,6 +337,9 @@ namespace QuickPrice.Utils
                 _inventoryController.AddItemEvent += OnInventoryChanged;
                 _inventoryController.RemoveItemEvent += OnInventoryChanged;
                 _inventoryController.RefreshItemEvent += OnInventoryChanged;
+                _inventoryController.OnAmmoLoaded += OnAmmoChanged;
+                _inventoryController.OnAmmoUnloaded += OnAmmoChanged;
+                _inventoryController.OnProfileUpdate += OnProfileUpdated;
             }
 
             var equipment = _equipment;
@@ -187,6 +363,9 @@ namespace QuickPrice.Utils
                 _inventoryController.AddItemEvent -= OnInventoryChanged;
                 _inventoryController.RemoveItemEvent -= OnInventoryChanged;
                 _inventoryController.RefreshItemEvent -= OnInventoryChanged;
+                _inventoryController.OnAmmoLoaded -= OnAmmoChanged;
+                _inventoryController.OnAmmoUnloaded -= OnAmmoChanged;
+                _inventoryController.OnProfileUpdate -= OnProfileUpdated;
             }
 
             foreach (var slot in _subscribedSlots)
@@ -200,12 +379,44 @@ namespace QuickPrice.Utils
 
         private static void OnInventoryChanged(object _)
         {
-            RecalculateValues();
+            RequestRecalculate();
         }
 
         private static void OnSlotChanged(Item _)
         {
+            RequestRecalculate();
+        }
+
+        private static void OnAmmoChanged(int _)
+        {
+            RequestRecalculate();
+        }
+
+        private static void OnProfileUpdated()
+        {
+            RequestRecalculate();
+        }
+
+        public static void ProcessPending()
+        {
+            if (!_pendingRecalculate)
+                return;
+
+            if (IsItemDragInProgress())
+                return;
+
+            float now = Time.realtimeSinceStartup;
+            if (now - _lastRecalculateTime < RecalculateDebounceSeconds)
+                return;
+
+            _pendingRecalculate = false;
+            _lastRecalculateTime = now;
             RecalculateValues();
+        }
+
+        private static void RequestRecalculate()
+        {
+            _pendingRecalculate = true;
         }
 
         private static void RecalculateValues()
@@ -234,9 +445,12 @@ namespace QuickPrice.Utils
                         excludeSpecialSlots,
                         PricePolicy.Default);
                     RaidSummaryMetrics.BroughtValue = broughtValue;
-                    RaidSummaryMetrics.LossValue = 0;
-                    RaidSummaryMetrics.LootValue = 0;
-                    RaidSummaryMetrics.SettlementValue = 0;
+                    if (!RaidSummaryMetrics.HasRaidSummary)
+                    {
+                        RaidSummaryMetrics.LossValue = 0;
+                        RaidSummaryMetrics.LootValue = 0;
+                        RaidSummaryMetrics.SettlementValue = 0;
+                    }
                     return;
                 }
 
@@ -253,12 +467,24 @@ namespace QuickPrice.Utils
 
                 var currentStates = BuildCurrentItemStates(equipment);
                 var secureContainerItemIds = BuildSecureContainerItemIds(equipment);
-                long lossValue = CalculateLossValue(currentStates);
-                long lootValue = CalculateLootValue(currentStates, secureContainerItemIds);
+                var protectedItemIds = BuildProtectedItemIds(equipment);
+                var stackableCounts = BuildCurrentStackableCounts(currentStates);
+                var secureStackableCounts = BuildStackableCountsForItemIds(currentStates, secureContainerItemIds);
+                var protectedStackableCounts = BuildStackableCountsForItemIds(currentStates, protectedItemIds);
+                UpdateLastKnownSnapshots(
+                    currentStates,
+                    stackableCounts,
+                    secureStackableCounts,
+                    protectedStackableCounts,
+                    secureContainerItemIds,
+                    protectedItemIds);
+                long lossValue = CalculateLossValue(currentStates, stackableCounts, false, protectedItemIds, protectedStackableCounts);
+                long lootValue = CalculateLootValue(currentStates, secureContainerItemIds, stackableCounts, false);
 
                 RaidSummaryMetrics.LossValue = lossValue;
                 RaidSummaryMetrics.LootValue = lootValue;
                 RaidSummaryMetrics.SettlementValue = lootValue - lossValue;
+                RaidSummaryMetrics.HasRaidSummary = true;
             }
             catch (Exception ex)
             {
@@ -274,8 +500,7 @@ namespace QuickPrice.Utils
             bool excludeDogtag,
             bool excludeSpecialSlots)
         {
-            _broughtSnapshot.Clear();
-            _initialItemIds.Clear();
+            ClearSnapshots();
 
             var visited = new HashSet<string>();
             foreach (var slot in equipment.AllSlots)
@@ -317,11 +542,57 @@ namespace QuickPrice.Utils
                     int stackCount = GetItemStackCount(item);
                     double relativeValue = GetItemRelativeValue(item);
                     double priceValue = unitPrice ?? 0;
-                    _broughtSnapshot[item.Id] = new ItemSnapshot(item.Id, priceValue, stackCount, relativeValue);
+                    double? baselineDurability = null;
+                    double? maxDurability = null;
+                    double? durabilityCostPerPoint = null;
+
+                    if (IsStackableItem(item))
+                    {
+                        AddStackableSnapshot(item, priceValue, stackCount);
+                        return;
+                    }
+
+                    if (ShouldTrackDurabilityLoss(item))
+                    {
+                        if (TryGetRepairableDurability(item, out var currentDurability, out var maxDurabilityValue))
+                        {
+                            baselineDurability = currentDurability;
+                            maxDurability = maxDurabilityValue;
+                            if (!TryGetRepairCostPerPoint(item, out var costPerPoint) &&
+                                maxDurabilityValue > 0)
+                            {
+                                durabilityCostPerPoint = ApplyRepairCostModifiers(priceValue / maxDurabilityValue);
+                            }
+                            else if (costPerPoint > 0)
+                            {
+                                durabilityCostPerPoint = costPerPoint;
+                            }
+                        }
+                    }
+
+                    _broughtSnapshot[item.Id] = new ItemSnapshot(
+                        item.Id,
+                        priceValue,
+                        stackCount,
+                        relativeValue,
+                        baselineDurability,
+                        maxDurability,
+                        durabilityCostPerPoint);
                 }, includeRoot: !traversal.SkipRootItem);
             }
 
-            RaidSummaryMetrics.BroughtValue = CalculateSnapshotTotal(_broughtSnapshot);
+            CaptureSecureContainerStackableSnapshot(equipment);
+
+            foreach (var slot in equipment.AllSlots)
+            {
+                if (slot?.ContainedItem is Weapon weapon)
+                {
+                    AddWeaponShellTemplateSnapshot(weapon);
+                }
+            }
+
+            RaidSummaryMetrics.BroughtValue = CalculateSnapshotTotal(_broughtSnapshot) +
+                                              CalculateStackableSnapshotTotal(_broughtStackableSnapshot);
             _raidSnapshotCaptured = true;
         }
 
@@ -342,11 +613,96 @@ namespace QuickPrice.Utils
 
                     int stackCount = GetItemStackCount(item);
                     double relativeValue = GetItemRelativeValue(item);
-                    currentStates[item.Id] = new ItemState(item.Id, item, stackCount, relativeValue);
+                    double? currentDurability = null;
+                    if (ShouldTrackDurabilityLoss(item) &&
+                        TryGetRepairableDurability(item, out var durabilityValue, out _))
+                    {
+                        currentDurability = durabilityValue;
+                    }
+
+                    currentStates[item.Id] = new ItemState(item.Id, item, stackCount, relativeValue, currentDurability);
                 });
             }
 
             return currentStates;
+        }
+
+        private static Dictionary<string, int> BuildCurrentStackableCounts(Dictionary<string, ItemState> currentStates)
+        {
+            var totals = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (currentStates == null || currentStates.Count == 0)
+                return totals;
+
+            foreach (var state in currentStates.Values)
+            {
+                var item = state.Item;
+                if (item == null)
+                    continue;
+
+                if (!IsStackableItem(item))
+                    continue;
+
+                if (IsSpentAmmo(item))
+                    continue;
+
+                var templateId = item.TemplateId;
+                if (string.IsNullOrEmpty(templateId))
+                    continue;
+
+                totals.TryGetValue(templateId, out var count);
+                totals[templateId] = count + Math.Max(1, state.StackCount);
+            }
+
+            foreach (var state in currentStates.Values)
+            {
+                if (state?.Item is Weapon weapon)
+                {
+                    AddWeaponShellTemplateCounts(totals, weapon);
+                }
+            }
+
+            return totals;
+        }
+
+        private static Dictionary<string, int> BuildStackableCountsForItemIds(
+            Dictionary<string, ItemState> currentStates,
+            HashSet<string> itemIds)
+        {
+            var totals = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (currentStates == null || currentStates.Count == 0 || itemIds == null || itemIds.Count == 0)
+                return totals;
+
+            foreach (var state in currentStates.Values)
+            {
+                if (state?.Item == null)
+                    continue;
+
+                if (string.IsNullOrEmpty(state.ItemId) || !itemIds.Contains(state.ItemId))
+                    continue;
+
+                if (!IsStackableItem(state.Item))
+                    continue;
+
+                if (IsSpentAmmo(state.Item))
+                    continue;
+
+                var templateId = state.Item.TemplateId;
+                if (string.IsNullOrEmpty(templateId))
+                    continue;
+
+                totals.TryGetValue(templateId, out var count);
+                totals[templateId] = count + Math.Max(1, state.StackCount);
+            }
+
+            foreach (var state in currentStates.Values)
+            {
+                if (state?.Item is Weapon weapon && itemIds.Contains(state.ItemId))
+                {
+                    AddWeaponShellTemplateCounts(totals, weapon);
+                }
+            }
+
+            return totals;
         }
 
         private static HashSet<string> BuildSecureContainerItemIds(InventoryEquipment equipment)
@@ -380,8 +736,111 @@ namespace QuickPrice.Utils
             return result;
         }
 
-        private static long CalculateLossValue(Dictionary<string, ItemState> currentStates)
+        private static void CaptureSecureContainerStackableSnapshot(InventoryEquipment equipment)
         {
+            _broughtSecureStackableSnapshot.Clear();
+
+            if (equipment == null)
+                return;
+
+            Slot secureSlot = null;
+            try
+            {
+                secureSlot = equipment.GetSlot(EquipmentSlot.SecuredContainer);
+            }
+            catch
+            {
+                secureSlot = null;
+            }
+
+            if (secureSlot?.ContainedItem == null)
+                return;
+
+            var visited = new HashSet<string>();
+            TraverseItemGraph(secureSlot.ContainedItem, visited, item =>
+            {
+                if (item == null)
+                    return;
+
+                if (IsStackableItem(item))
+                {
+                    double? unitPrice = GetItemUnitPrice(item, PricePolicy.Default);
+                    int stackCount = GetItemStackCount(item);
+                    AddStackableSnapshot(_broughtSecureStackableSnapshot, item, unitPrice ?? 0, stackCount);
+                }
+
+                if (item is Weapon weapon)
+                {
+                    AddWeaponShellTemplateSnapshot(_broughtSecureStackableSnapshot, weapon);
+                }
+            });
+        }
+
+        private static HashSet<string> BuildProtectedItemIds(InventoryEquipment equipment)
+        {
+            var result = new HashSet<string>();
+            if (equipment == null)
+                return result;
+
+            var secureSlot = GetSlotSafe(equipment, EquipmentSlot.SecuredContainer);
+            var armBandSlot = GetSlotSafe(equipment, EquipmentSlot.ArmBand);
+            var scabbardSlot = GetSlotSafe(equipment, EquipmentSlot.Scabbard);
+            var visited = new HashSet<string>();
+
+            foreach (var slot in equipment.AllSlots)
+            {
+                if (slot?.ContainedItem == null)
+                    continue;
+
+                bool isProtected =
+                    (secureSlot != null && ReferenceEquals(slot, secureSlot)) ||
+                    (armBandSlot != null && ReferenceEquals(slot, armBandSlot)) ||
+                    (scabbardSlot != null && ReferenceEquals(slot, scabbardSlot)) ||
+                    IsSpecialSlot(slot);
+
+                if (!isProtected)
+                    continue;
+
+                TraverseItemGraph(slot.ContainedItem, visited, item =>
+                {
+                    if (!string.IsNullOrEmpty(item?.Id))
+                    {
+                        result.Add(item.Id);
+                    }
+                });
+            }
+
+            return result;
+        }
+
+        private static void UpdateLastKnownSnapshots(
+            Dictionary<string, ItemState> currentStates,
+            Dictionary<string, int> stackableCounts,
+            Dictionary<string, int> secureStackableCounts,
+            Dictionary<string, int> protectedStackableCounts,
+            HashSet<string> secureContainerItemIds,
+            HashSet<string> protectedItemIds)
+        {
+            CopyDictionary(_lastKnownStates, currentStates);
+            CopyDictionary(_lastKnownStackableCounts, stackableCounts);
+            CopyDictionary(_lastKnownSecureStackableCounts, secureStackableCounts);
+            CopyDictionary(_lastKnownProtectedStackableCounts, protectedStackableCounts);
+            CopyHashSet(_lastKnownSecureContainerItemIds, secureContainerItemIds);
+            CopyHashSet(_lastKnownProtectedItemIds, protectedItemIds);
+        }
+
+        private static long CalculateLossValue(
+            Dictionary<string, ItemState> currentStates,
+            Dictionary<string, int> stackableCounts,
+            bool isDeathOutcome,
+            HashSet<string> protectedItemIds,
+            Dictionary<string, int> protectedStackableCounts)
+        {
+            if (isDeathOutcome)
+            {
+                return CalculateDeathLossValue(currentStates, protectedItemIds, protectedStackableCounts);
+            }
+
             long total = 0;
             foreach (var snapshot in _broughtSnapshot.Values)
             {
@@ -397,6 +856,21 @@ namespace QuickPrice.Utils
                     {
                         total += (long)Math.Round(delta, MidpointRounding.AwayFromZero);
                     }
+
+                    if (snapshot.DurabilityCostPerPoint.HasValue &&
+                        snapshot.BaselineDurability.HasValue &&
+                        current.CurrentDurability.HasValue)
+                    {
+                        double durabilityDelta = snapshot.BaselineDurability.Value - current.CurrentDurability.Value;
+                        if (durabilityDelta > 0)
+                        {
+                            double durabilityLoss = durabilityDelta * snapshot.DurabilityCostPerPoint.Value;
+                            if (durabilityLoss > 0)
+                            {
+                                total += (long)Math.Round(durabilityLoss, MidpointRounding.AwayFromZero);
+                            }
+                        }
+                    }
                 }
                 else
                 {
@@ -404,10 +878,65 @@ namespace QuickPrice.Utils
                 }
             }
 
+            total += CalculateStackableLoss(stackableCounts);
             return total;
         }
 
-        private static long CalculateLootValue(Dictionary<string, ItemState> currentStates, HashSet<string> secureContainerItemIds)
+        private static long CalculateDeathLossValue(
+            Dictionary<string, ItemState> currentStates,
+            HashSet<string> protectedItemIds,
+            Dictionary<string, int> protectedStackableCounts)
+        {
+            long total = 0;
+            protectedItemIds ??= new HashSet<string>();
+
+            foreach (var snapshot in _broughtSnapshot.Values)
+            {
+                double baseline = snapshot.BaselineValue;
+                if (baseline <= 0)
+                    continue;
+
+                bool isProtected = protectedItemIds.Contains(snapshot.ItemId);
+                if (isProtected && currentStates != null &&
+                    currentStates.TryGetValue(snapshot.ItemId, out var current))
+                {
+                    double currentValue = snapshot.BaseUnitPrice * current.StackCount * current.RelativeValue;
+                    double delta = baseline - currentValue;
+                    if (delta > 0)
+                    {
+                        total += (long)Math.Round(delta, MidpointRounding.AwayFromZero);
+                    }
+
+                    if (snapshot.DurabilityCostPerPoint.HasValue &&
+                        snapshot.BaselineDurability.HasValue &&
+                        current.CurrentDurability.HasValue)
+                    {
+                        double durabilityDelta = snapshot.BaselineDurability.Value - current.CurrentDurability.Value;
+                        if (durabilityDelta > 0)
+                        {
+                            double durabilityLoss = durabilityDelta * snapshot.DurabilityCostPerPoint.Value;
+                            if (durabilityLoss > 0)
+                            {
+                                total += (long)Math.Round(durabilityLoss, MidpointRounding.AwayFromZero);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    total += (long)Math.Round(baseline, MidpointRounding.AwayFromZero);
+                }
+            }
+
+            total += CalculateStackableLoss(protectedStackableCounts);
+            return total;
+        }
+
+        private static long CalculateLootValue(
+            Dictionary<string, ItemState> currentStates,
+            HashSet<string> secureContainerItemIds,
+            Dictionary<string, int> stackableCounts,
+            bool isDeathOutcome)
         {
             secureContainerItemIds ??= new HashSet<string>();
             long total = 0;
@@ -420,8 +949,16 @@ namespace QuickPrice.Utils
                     continue;
 
                 bool inSecureContainer = secureContainerItemIds.Contains(current.ItemId);
-                var policy = current.Item.SpawnedInSession ? PricePolicy.Default : PricePolicy.TraderOnly;
-                if (!current.Item.SpawnedInSession && inSecureContainer)
+                if (isDeathOutcome && !inSecureContainer)
+                    continue;
+
+                if (IsStackableItem(current.Item))
+                    continue;
+
+                var policy = isDeathOutcome
+                    ? PricePolicy.TraderOnly
+                    : (current.Item.SpawnedInSession ? PricePolicy.Default : PricePolicy.TraderOnly);
+                if (!isDeathOutcome && !current.Item.SpawnedInSession && inSecureContainer)
                 {
                     policy = PricePolicy.TraderOnly;
                 }
@@ -433,6 +970,13 @@ namespace QuickPrice.Utils
                 total += (long)Math.Round(value, MidpointRounding.AwayFromZero);
             }
 
+            total += CalculateStackableLoot(
+                currentStates,
+                secureContainerItemIds,
+                stackableCounts,
+                isDeathOutcome ? _broughtSecureStackableSnapshot : _broughtStackableSnapshot,
+                isDeathOutcome,
+                isDeathOutcome);
             return total;
         }
 
@@ -526,8 +1070,11 @@ namespace QuickPrice.Utils
             if (item == null)
                 return 1.0;
 
-            if (TryGetRelativeValue(item.GetItemComponent<RepairableComponent>(), out var relative))
+            if (ShouldUseRepairableRelativeValue(item) &&
+                TryGetRelativeValue(item.GetItemComponent<RepairableComponent>(), out var relative))
+            {
                 return ClampRelativeValue(relative);
+            }
             if (TryGetRelativeValue(item.GetItemComponent<ResourceComponent>(), out relative))
                 return ClampRelativeValue(relative);
             if (TryGetRelativeValue(item.GetItemComponent<MedKitComponent>(), out relative))
@@ -535,11 +1082,184 @@ namespace QuickPrice.Utils
             if (TryGetRelativeValue(item.GetItemComponent<FoodDrinkComponent>(), out relative))
                 return ClampRelativeValue(relative);
             if (TryGetRelativeValue(item.GetItemComponent<KeyComponent>(), out relative))
-                return ClampRelativeValue(relative);
+            {
+                var keyRelative = ClampRelativeValue(relative);
+                if (TryGetRelativeValueFromItemUpd(item, out var updRelative))
+                {
+                    updRelative = ClampRelativeValue(updRelative);
+                    return Math.Min(keyRelative, updRelative);
+                }
+                return keyRelative;
+            }
             if (TryGetRelativeValue(item.GetItemComponent<RepairKitComponent>(), out relative))
                 return ClampRelativeValue(relative);
 
+            if (TryGetRelativeValueFromItemUpd(item, out relative))
+                return ClampRelativeValue(relative);
+
             return 1.0;
+        }
+
+        private static bool ShouldUseRepairableRelativeValue(Item item)
+        {
+            if (item == null)
+                return false;
+
+            if (item is Weapon)
+                return false;
+
+            if (IsArmorItem(item))
+                return false;
+
+            return true;
+        }
+
+        private static bool ShouldTrackDurabilityLoss(Item item)
+        {
+            if (item == null)
+                return false;
+
+            if (item is Weapon)
+                return Settings.IncludeWeaponDurabilityLoss?.Value ?? true;
+
+            if (IsArmorItem(item))
+                return Settings.IncludeArmorDurabilityLoss?.Value ?? true;
+
+            return false;
+        }
+
+        private static bool IsArmorItem(Item item)
+        {
+            if (item == null)
+                return false;
+
+            if (ArmorHelper.IsArmor(item))
+                return true;
+
+            var typeName = item.GetType().Name;
+            return typeName == "ArmorPlateItemClass" ||
+                   typeName == "BuiltInInsertsItemClass" ||
+                   typeName.Contains("Plate") ||
+                   typeName.Contains("plate") ||
+                   typeName.Contains("Insert") ||
+                   typeName.Contains("insert");
+        }
+
+        private static bool TryGetRepairableDurability(Item item, out double current, out double max)
+        {
+            current = 0;
+            max = 0;
+            if (item == null)
+                return false;
+
+            var repairable = item.GetItemComponent<RepairableComponent>();
+            if (repairable == null)
+                return false;
+
+            if (!TryGetNumberProperty(repairable, "Durability", out current))
+                return false;
+
+            if (!TryGetNumberProperty(repairable, "MaxDurability", out max))
+                return false;
+
+            return max > 0;
+        }
+
+        private static bool TryGetRepairCostPerPoint(Item item, out double costPerPoint)
+        {
+            costPerPoint = 0;
+            if (item == null)
+                return false;
+
+            var repairable = item.GetItemComponent<RepairableComponent>();
+            if (repairable != null && TryGetNumberProperty(repairable, "RepairCost", out var baseCostPerPoint))
+            {
+                costPerPoint = ApplyRepairCostModifiers(baseCostPerPoint);
+                return costPerPoint > 0;
+            }
+
+            var template = GetTemplateObject(repairable) ?? GetTemplateObject(item);
+            if (template != null)
+            {
+                if (TryGetNumberProperty(template, "RepairCost", out baseCostPerPoint))
+                {
+                    costPerPoint = ApplyRepairCostModifiers(baseCostPerPoint);
+                    return costPerPoint > 0;
+                }
+
+                var repairableTemplate = GetNestedTemplate(template, "Repairable");
+                if (repairableTemplate != null && TryGetNumberProperty(repairableTemplate, "RepairCost", out baseCostPerPoint))
+                {
+                    costPerPoint = ApplyRepairCostModifiers(baseCostPerPoint);
+                    return costPerPoint > 0;
+                }
+            }
+
+            return false;
+        }
+
+        private static double ApplyRepairCostModifiers(double baseCostPerPoint)
+        {
+            if (baseCostPerPoint <= 0)
+                return baseCostPerPoint;
+
+            double multiplier = Settings.RepairCostPriceMultiplier?.Value ?? 1f;
+            double coefficientPercent = Settings.RepairPriceCoefficientPercent?.Value ?? 0f;
+            double coefficientMultiplier = coefficientPercent <= 0 ? 1.0 : (coefficientPercent / 100.0 + 1.0);
+
+            return baseCostPerPoint * multiplier * coefficientMultiplier;
+        }
+
+        private static object GetNestedTemplate(object template, string propertyName)
+        {
+            if (template == null || string.IsNullOrEmpty(propertyName))
+                return null;
+
+            try
+            {
+                var prop = template.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                return prop?.GetValue(template);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static object GetTemplateObject(object instance)
+        {
+            if (instance == null)
+                return null;
+
+            try
+            {
+                var prop = instance.GetType().GetProperty("Template", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                return prop?.GetValue(instance);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryGetNumberProperty(object instance, string propertyName, out double value)
+        {
+            value = 0;
+            if (instance == null || string.IsNullOrEmpty(propertyName))
+                return false;
+
+            try
+            {
+                var prop = instance.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                if (prop == null)
+                    return false;
+
+                return TryConvertNumber(prop.GetValue(instance), out value);
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static bool TryGetRelativeValue(object component, out double relativeValue)
@@ -668,6 +1388,24 @@ namespace QuickPrice.Utils
             return total;
         }
 
+        private static long CalculateStackableSnapshotTotal(Dictionary<string, StackableSnapshot> snapshot)
+        {
+            long total = 0;
+            foreach (var item in snapshot.Values)
+            {
+                if (item.UnitPrice <= 0 || item.BaselineCount <= 0)
+                    continue;
+
+                double value = item.UnitPrice * item.BaselineCount;
+                if (value > 0)
+                {
+                    total += (long)Math.Round(value, MidpointRounding.AwayFromZero);
+                }
+            }
+
+            return total;
+        }
+
         private static void TraverseItemGraph(Item item, HashSet<string> visited, Action<Item> action, bool includeRoot = true)
         {
             if (item == null)
@@ -690,6 +1428,11 @@ namespace QuickPrice.Utils
                     {
                         TraverseItemGraph(mod, visited, action);
                     }
+                }
+
+                foreach (var chamberItem in GetWeaponChamberItems(weapon))
+                {
+                    TraverseItemGraph(chamberItem, visited, action);
                 }
             }
             else if (item is Mod mod)
@@ -730,6 +1473,31 @@ namespace QuickPrice.Utils
                         TraverseItemGraph(cartridge, visited, action);
                     }
                 }
+            }
+        }
+
+        private static IEnumerable<Item> GetWeaponChamberItems(Weapon weapon)
+        {
+            if (weapon == null)
+                yield break;
+
+            Slot[] chambers = null;
+            try
+            {
+                chambers = weapon.Chambers;
+            }
+            catch
+            {
+                chambers = null;
+            }
+
+            if (chambers == null || chambers.Length == 0)
+                yield break;
+
+            foreach (var chamberSlot in chambers)
+            {
+                if (chamberSlot?.ContainedItem != null)
+                    yield return chamberSlot.ContainedItem;
             }
         }
 
@@ -798,13 +1566,14 @@ namespace QuickPrice.Utils
 
             var excludedSlots = new HashSet<Slot>();
             Slot secureSlot = null;
+            Slot armBandSlot = null;
 
             if (excludeSecureContainer)
                 secureSlot = GetSlotSafe(equipment, EquipmentSlot.SecuredContainer);
             if (excludeKnife)
                 AddSlot(excludedSlots, equipment, EquipmentSlot.Scabbard);
             if (excludeArmBand)
-                AddSlot(excludedSlots, equipment, EquipmentSlot.ArmBand);
+                armBandSlot = GetSlotSafe(equipment, EquipmentSlot.ArmBand);
             if (excludeDogtag)
                 AddSlot(excludedSlots, equipment, EquipmentSlot.Dogtag);
 
@@ -812,12 +1581,14 @@ namespace QuickPrice.Utils
             {
                 if (slot == null)
                     continue;
-                if (excludeSpecialSlots && IsSpecialSlot(slot))
+                bool isSecureSlot = secureSlot != null && ReferenceEquals(slot, secureSlot);
+                bool isArmBandSlot = armBandSlot != null && ReferenceEquals(slot, armBandSlot);
+                if (excludeSpecialSlots && IsSpecialSlot(slot) && !isSecureSlot && !isArmBandSlot)
                     continue;
                 if (excludedSlots.Contains(slot))
                     continue;
 
-                bool skipRootItem = secureSlot != null && ReferenceEquals(slot, secureSlot);
+                bool skipRootItem = isSecureSlot || isArmBandSlot;
                 yield return new SlotTraversal(slot, skipRootItem);
             }
         }
@@ -861,6 +1632,526 @@ namespace QuickPrice.Utils
             var slotId = slot.ID;
             return !string.IsNullOrEmpty(slotId) &&
                    slotId.IndexOf("SpecialSlot", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static void AddStackableSnapshot(Item item, double unitPrice, int stackCount)
+        {
+            AddStackableSnapshot(_broughtStackableSnapshot, item, unitPrice, stackCount);
+        }
+
+        private static void AddStackableSnapshot(string templateId, double unitPrice, int stackCount)
+        {
+            AddStackableSnapshot(_broughtStackableSnapshot, templateId, unitPrice, stackCount);
+        }
+
+        private static void AddStackableSnapshot(
+            Dictionary<string, StackableSnapshot> snapshotMap,
+            Item item,
+            double unitPrice,
+            int stackCount)
+        {
+            if (snapshotMap == null || item == null)
+                return;
+
+            if (IsSpentAmmo(item))
+                return;
+
+            var templateId = item.TemplateId;
+            if (string.IsNullOrEmpty(templateId))
+                return;
+
+            AddStackableSnapshot(snapshotMap, templateId, unitPrice, stackCount);
+        }
+
+        private static void AddStackableSnapshot(
+            Dictionary<string, StackableSnapshot> snapshotMap,
+            string templateId,
+            double unitPrice,
+            int stackCount)
+        {
+            if (snapshotMap == null || string.IsNullOrEmpty(templateId))
+                return;
+
+            if (!snapshotMap.TryGetValue(templateId, out var snapshot))
+            {
+                snapshot = new StackableSnapshot(templateId, unitPrice, Math.Max(1, stackCount));
+                snapshotMap[templateId] = snapshot;
+                return;
+            }
+
+            snapshot.BaselineCount += Math.Max(1, stackCount);
+            if (snapshot.UnitPrice <= 0 && unitPrice > 0)
+                snapshot.UnitPrice = unitPrice;
+        }
+
+        private static long CalculateStackableLoss(Dictionary<string, int> stackableCounts)
+        {
+            if (_broughtStackableSnapshot.Count == 0)
+                return 0;
+
+            long total = 0;
+            foreach (var snapshot in _broughtStackableSnapshot.Values)
+            {
+                if (snapshot.UnitPrice <= 0 || snapshot.BaselineCount <= 0)
+                    continue;
+
+                int currentCount = 0;
+                if (stackableCounts != null)
+                {
+                    stackableCounts.TryGetValue(snapshot.TemplateId, out currentCount);
+                }
+                int delta = snapshot.BaselineCount - currentCount;
+                if (delta <= 0)
+                    continue;
+
+                double value = snapshot.UnitPrice * delta;
+                if (value > 0)
+                    total += (long)Math.Round(value, MidpointRounding.AwayFromZero);
+            }
+
+            return total;
+        }
+
+        private static long CalculateStackableLoot(
+            Dictionary<string, ItemState> currentStates,
+            HashSet<string> secureContainerItemIds,
+            Dictionary<string, int> stackableCounts,
+            Dictionary<string, StackableSnapshot> baselineSnapshot,
+            bool restrictToSecureContainer,
+            bool forceTraderOnly)
+        {
+            if (currentStates == null || currentStates.Count == 0 || stackableCounts == null)
+                return 0;
+
+            var remaining = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var kvp in stackableCounts)
+            {
+                baselineSnapshot ??= _broughtStackableSnapshot;
+                baselineSnapshot.TryGetValue(kvp.Key, out var baseline);
+                int baselineCount = baseline?.BaselineCount ?? 0;
+                int delta = kvp.Value - baselineCount;
+                if (delta > 0)
+                    remaining[kvp.Key] = delta;
+            }
+
+            if (remaining.Count == 0)
+                return 0;
+
+            long total = 0;
+            secureContainerItemIds ??= new HashSet<string>();
+
+            var stackableStates = currentStates.Values
+                .Where(state => state?.Item != null && IsStackableItem(state.Item))
+                .Where(state => !restrictToSecureContainer || secureContainerItemIds.Contains(state.ItemId))
+                .OrderByDescending(state => !_initialItemIds.Contains(state.ItemId))
+                .ToList();
+
+            foreach (var current in stackableStates)
+            {
+                if (string.IsNullOrEmpty(current.ItemId))
+                    continue;
+
+                var item = current.Item;
+                if (item == null)
+                    continue;
+
+                var templateId = item.TemplateId;
+                if (string.IsNullOrEmpty(templateId))
+                    continue;
+
+                if (!remaining.TryGetValue(templateId, out var remainingCount) || remainingCount <= 0)
+                    continue;
+
+                int takeCount = Math.Min(Math.Max(1, current.StackCount), remainingCount);
+                bool inSecureContainer = secureContainerItemIds.Contains(current.ItemId);
+                var policy = forceTraderOnly
+                    ? PricePolicy.TraderOnly
+                    : (item.SpawnedInSession ? PricePolicy.Default : PricePolicy.TraderOnly);
+                if (!forceTraderOnly && !item.SpawnedInSession && inSecureContainer)
+                {
+                    policy = PricePolicy.TraderOnly;
+                }
+
+                double? unitPrice = GetItemUnitPrice(item, policy);
+                if (unitPrice.HasValue && unitPrice.Value > 0)
+                {
+                    double value = unitPrice.Value * takeCount * current.RelativeValue;
+                    total += (long)Math.Round(value, MidpointRounding.AwayFromZero);
+                }
+
+                remaining[templateId] = remainingCount - takeCount;
+            }
+
+            return total;
+        }
+
+        private static bool IsStackableItem(Item item)
+        {
+            if (item == null)
+                return false;
+
+            if (item is AmmoItemClass)
+                return true;
+
+            if (TryGetStackMaxCount(item, out var maxCount) && maxCount > 1)
+                return true;
+
+            return item.StackObjectsCount > 1;
+        }
+
+        private static bool IsSpentAmmo(Item item)
+        {
+            if (item is AmmoItemClass ammo)
+                return ammo.IsUsed;
+
+            return false;
+        }
+
+        private static bool TryGetStackMaxCount(Item item, out int maxCount)
+        {
+            maxCount = 0;
+            if (item == null)
+                return false;
+
+            if (TryGetNumberProperty(item, "StackMaxCount", out var value) ||
+                TryGetNumberProperty(item, "StackMaxSize", out value) ||
+                TryGetNumberProperty(item, "StackMax", out value) ||
+                TryGetNumberProperty(item, "MaxStackCount", out value))
+            {
+                maxCount = (int)Math.Round(value, MidpointRounding.AwayFromZero);
+                return maxCount > 0;
+            }
+
+            var template = GetTemplateObject(item);
+            if (template != null)
+            {
+                if (TryGetNumberProperty(template, "StackMaxCount", out value) ||
+                    TryGetNumberProperty(template, "StackMaxSize", out value) ||
+                    TryGetNumberProperty(template, "StackMax", out value) ||
+                    TryGetNumberProperty(template, "MaxStackCount", out value))
+                {
+                    maxCount = (int)Math.Round(value, MidpointRounding.AwayFromZero);
+                    return maxCount > 0;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetRelativeValueFromItemUpd(Item item, out double relativeValue)
+        {
+            relativeValue = 1.0;
+            if (item == null)
+                return false;
+
+            var upd = GetUpdateObject(item);
+            if (upd == null)
+                return false;
+
+            var template = GetTemplateObject(item);
+
+            if (TryGetRatioFromUpdateAndTemplate(
+                    upd,
+                    template,
+                    "Key",
+                    new[] { "NumberOfUsages", "NumberOfUses", "Uses" },
+                    "Key",
+                    new[] { "MaxNumberOfUsages", "MaximumNumberOfUsages", "MaxUsages", "MaximumUsages" },
+                    out relativeValue))
+            {
+                return true;
+            }
+
+            if (TryGetRatioFromUpdateAndTemplate(
+                    upd,
+                    template,
+                    "KeyCard",
+                    new[] { "NumberOfUsages", "NumberOfUses", "Uses" },
+                    "KeyCard",
+                    new[] { "MaxNumberOfUsages", "MaximumNumberOfUsages", "MaxUsages", "MaximumUsages" },
+                    out relativeValue))
+            {
+                return true;
+            }
+
+            if (TryGetRatioFromUpdateAndTemplate(
+                    upd,
+                    template,
+                    "Keycard",
+                    new[] { "NumberOfUsages", "NumberOfUses", "Uses" },
+                    "Keycard",
+                    new[] { "MaxNumberOfUsages", "MaximumNumberOfUsages", "MaxUsages", "MaximumUsages" },
+                    out relativeValue))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        public static void SetUiDragging(bool isDragging)
+        {
+            _isUiDragging = isDragging;
+        }
+
+        private static bool TryGetRatioFromUpdateAndTemplate(
+            object upd,
+            object template,
+            string updSectionName,
+            string[] currentPropertyNames,
+            string templateSectionName,
+            string[] maxPropertyNames,
+            out double ratio)
+        {
+            ratio = 1.0;
+            if (upd == null || string.IsNullOrEmpty(updSectionName))
+                return false;
+
+            var updSection = GetNestedTemplate(upd, updSectionName);
+            if (updSection == null)
+                return false;
+
+            if (!TryGetNumberPropertyAny(updSection, currentPropertyNames, out var current))
+                return false;
+
+            object templateSection = null;
+            if (template != null)
+            {
+                templateSection = GetNestedTemplate(template, templateSectionName) ?? template;
+            }
+
+            if (templateSection == null || !TryGetNumberPropertyAny(templateSection, maxPropertyNames, out var max))
+                return false;
+
+            if (max <= 0)
+                return false;
+
+            ratio = current / max;
+            return true;
+        }
+
+        private static bool TryGetNumberPropertyAny(object instance, string[] propertyNames, out double value)
+        {
+            value = 0;
+            if (instance == null || propertyNames == null)
+                return false;
+
+            foreach (var name in propertyNames)
+            {
+                if (string.IsNullOrEmpty(name))
+                    continue;
+
+                if (TryGetNumberProperty(instance, name, out value))
+                    return true;
+            }
+
+            value = 0;
+            return false;
+        }
+
+        private static object GetUpdateObject(Item item)
+        {
+            if (item == null)
+                return null;
+
+            try
+            {
+                var prop = item.GetType().GetProperty("Upd", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                return prop?.GetValue(item);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool IsItemDragInProgress()
+        {
+            if (_isUiDragging)
+                return true;
+
+            var context = ItemUiContext.Instance;
+            if (context == null)
+                return false;
+
+            var boolMembers = new[]
+            {
+                "IsDragging",
+                "Dragging",
+                "IsDragInProgress",
+                "IsItemDragging"
+            };
+
+            foreach (var name in boolMembers)
+            {
+                if (TryGetMemberValue(context, name, out var raw) && raw is bool flag)
+                {
+                    if (flag)
+                        return true;
+                }
+            }
+
+            var referenceMembers = new[]
+            {
+                "DraggedItem",
+                "DraggedItemView",
+                "CurrentDraggedItem",
+                "CurrentDraggedItemView",
+                "DraggedItemContext",
+                "DragItem",
+                "DragItemView",
+                "DraggingItemView"
+            };
+
+            foreach (var name in referenceMembers)
+            {
+                if (TryGetMemberValue(context, name, out var raw) && raw != null)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static void AddWeaponShellTemplateCounts(Dictionary<string, int> totals, Weapon weapon)
+        {
+            if (totals == null || weapon == null)
+                return;
+
+            AmmoTemplate[] shells = null;
+            try
+            {
+                shells = weapon.ShellsInChambers;
+            }
+            catch
+            {
+                shells = null;
+            }
+
+            if (shells == null || shells.Length == 0)
+                return;
+
+            foreach (var shell in shells)
+            {
+                if (shell == null)
+                    continue;
+
+                var templateId = shell.StringId;
+                if (string.IsNullOrEmpty(templateId))
+                    continue;
+
+                totals.TryGetValue(templateId, out var count);
+                totals[templateId] = count + 1;
+            }
+        }
+
+        private static void AddWeaponShellTemplateSnapshot(Weapon weapon)
+        {
+            AddWeaponShellTemplateSnapshot(_broughtStackableSnapshot, weapon);
+        }
+
+        private static void AddWeaponShellTemplateSnapshot(
+            Dictionary<string, StackableSnapshot> snapshotMap,
+            Weapon weapon)
+        {
+            if (snapshotMap == null || weapon == null)
+                return;
+
+            AmmoTemplate[] shells = null;
+            try
+            {
+                shells = weapon.ShellsInChambers;
+            }
+            catch
+            {
+                shells = null;
+            }
+
+            if (shells == null || shells.Length == 0)
+                return;
+
+            foreach (var shell in shells)
+            {
+                if (shell == null)
+                    continue;
+
+                var templateId = shell.StringId;
+                if (string.IsNullOrEmpty(templateId))
+                    continue;
+
+                double unitPrice = GetTemplateUnitPrice(templateId);
+                AddStackableSnapshot(snapshotMap, templateId, unitPrice, 1);
+            }
+        }
+
+        private static double GetTemplateUnitPrice(string templateId)
+        {
+            if (string.IsNullOrEmpty(templateId))
+                return 0;
+
+            double? fleaPrice = PriceDataService.Instance.GetPrice(templateId);
+            if (fleaPrice.HasValue && fleaPrice.Value > 0)
+                return fleaPrice.Value;
+
+            return 0;
+        }
+
+        private static void CopyDictionary<TKey, TValue>(
+            Dictionary<TKey, TValue> target,
+            Dictionary<TKey, TValue> source)
+        {
+            target.Clear();
+            if (source == null)
+                return;
+
+            foreach (var kvp in source)
+            {
+                target[kvp.Key] = kvp.Value;
+            }
+        }
+
+        private static void CopyHashSet(HashSet<string> target, HashSet<string> source)
+        {
+            target.Clear();
+            if (source == null)
+                return;
+
+            foreach (var item in source)
+            {
+                target.Add(item);
+            }
+        }
+
+        private static bool TryGetMemberValue(object instance, string memberName, out object value)
+        {
+            value = null;
+            if (instance == null || string.IsNullOrEmpty(memberName))
+                return false;
+
+            try
+            {
+                var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+                var prop = instance.GetType().GetProperty(memberName, flags);
+                if (prop != null)
+                {
+                    value = prop.GetValue(instance);
+                    return true;
+                }
+
+                var field = instance.GetType().GetField(memberName, flags);
+                if (field != null)
+                {
+                    value = field.GetValue(instance);
+                    return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            return false;
         }
     }
 }

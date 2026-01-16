@@ -14,8 +14,10 @@ using SPTarkov.Server.Core.Models.Common;
 using SPTarkov.Server.Core.Models.Eft.Common;
 using SPTarkov.Server.Core.Models.Eft.Common.Tables;
 using SPTarkov.Server.Core.Models.Utils;
+using SPTarkov.Server.Core.Models.Spt.Config;
 using SPTarkov.Server.Core.Utils;
 using SPTarkov.Server.Core.Services;
+using SPTarkov.Server.Core.Servers;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -32,6 +34,9 @@ namespace QuickPrice.Server
         private static DatabaseService? _databaseServiceStatic;
         private static RagfairOfferService? _ragfairOfferServiceStatic;
         private static ISptLogger<QuickPriceStaticRouter>? _loggerStatic;
+        private static ConfigServer? _configServerStatic;
+        private static TraderHelper? _traderHelperStatic;
+        private static ProfileHelper? _profileHelperStatic;
 
         // 价格缓存
         private static Dictionary<string, double>? _cachedDynamicPrices;
@@ -87,7 +92,10 @@ namespace QuickPrice.Server
             JsonUtil jsonUtil,
             DatabaseService databaseService,
             RagfairOfferService ragfairOfferService,
-            ISptLogger<QuickPriceStaticRouter> logger) : base(
+            ISptLogger<QuickPriceStaticRouter> logger,
+            ConfigServer configServer,
+            TraderHelper traderHelper,
+            ProfileHelper profileHelper) : base(
             jsonUtil,
             GetCustomRoutes()
         )
@@ -101,6 +109,9 @@ namespace QuickPrice.Server
                     _databaseServiceStatic = databaseService;
                     _ragfairOfferServiceStatic = ragfairOfferService;
                     _loggerStatic = logger;
+                    _configServerStatic = configServer;
+                    _traderHelperStatic = traderHelper;
+                    _profileHelperStatic = profileHelper;
                     return;
                 }
 
@@ -111,6 +122,9 @@ namespace QuickPrice.Server
                 _databaseServiceStatic = databaseService;
                 _ragfairOfferServiceStatic = ragfairOfferService;
                 _loggerStatic = logger;
+                _configServerStatic = configServer;
+                _traderHelperStatic = traderHelper;
+                _profileHelperStatic = profileHelper;
 
                 // 加载配置文件（先初始化日志级别）
                 LoadConfig(force: true);
@@ -1978,20 +1992,23 @@ namespace QuickPrice.Server
                 EnsureConfigLoaded();
                 var config = _config ?? new QuickPriceConfig();
 
-                var response = BuildClientConfigResponse(config);
+                var response = BuildClientConfigResponse(config, sessionId);
                 var json = JsonSerializer.Serialize(response);
                 return new ValueTask<string>(json);
             }
             catch (Exception ex)
             {
                 LogError($"[QuickPrice] 获取客户端配置失败: {ex.Message}", ex);
-                var fallback = BuildClientConfigResponse(new QuickPriceConfig());
+                var fallback = BuildClientConfigResponse(new QuickPriceConfig(), sessionId);
                 return new ValueTask<string>(JsonSerializer.Serialize(fallback));
             }
         }
 
-        private static ClientConfigResponse BuildClientConfigResponse(QuickPriceConfig config)
+        private static ClientConfigResponse BuildClientConfigResponse(QuickPriceConfig config, MongoId sessionId)
         {
+            var repairMultiplier = TryGetRepairPriceMultiplier();
+            var repairCoefficient = TryGetBestRepairPriceCoefficientPercent(sessionId);
+
             return new ClientConfigResponse
             {
                 OverrideClientConfig = config.OverrideClientConfig,
@@ -2013,7 +2030,9 @@ namespace QuickPrice.Server
                 PenetrationThreshold2 = config.PenetrationThreshold2,
                 PenetrationThreshold3 = config.PenetrationThreshold3,
                 PenetrationThreshold4 = config.PenetrationThreshold4,
-                PenetrationThreshold5 = config.PenetrationThreshold5
+                PenetrationThreshold5 = config.PenetrationThreshold5,
+                RepairCostPriceMultiplier = repairMultiplier,
+                RepairPriceCoefficientPercent = repairCoefficient
             };
         }
 
@@ -2039,6 +2058,81 @@ namespace QuickPrice.Server
             public int PenetrationThreshold3 { get; set; }
             public int PenetrationThreshold4 { get; set; }
             public int PenetrationThreshold5 { get; set; }
+            public double? RepairCostPriceMultiplier { get; set; }
+            public double? RepairPriceCoefficientPercent { get; set; }
+        }
+
+        private static double? TryGetRepairPriceMultiplier()
+        {
+            try
+            {
+                var configServer = _configServerStatic;
+                if (configServer == null)
+                    return null;
+
+                var repairConfig = configServer.GetConfig<RepairConfig>();
+                if (repairConfig == null)
+                    return null;
+
+                return repairConfig.PriceMultiplier;
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"[QuickPrice] 获取 RepairConfig.PriceMultiplier 失败: {ex.Message}", ex);
+                return null;
+            }
+        }
+
+        private static double? TryGetBestRepairPriceCoefficientPercent(MongoId sessionId)
+        {
+            try
+            {
+                if (MongoId.Empty().Equals(sessionId))
+                    return null;
+
+                var profileHelper = _profileHelperStatic;
+                var traderHelper = _traderHelperStatic;
+                if (profileHelper == null || traderHelper == null)
+                    return null;
+
+                var pmcProfile = profileHelper.GetPmcProfile(sessionId);
+                if (pmcProfile == null)
+                    return null;
+
+                if (_databaseServiceStatic == null)
+                    return null;
+
+                var tables = _databaseServiceStatic.GetTables();
+                if (tables?.Traders == null || tables.Traders.Count == 0)
+                    return null;
+
+                double? bestCoefficient = null;
+                foreach (var traderEntry in tables.Traders)
+                {
+                    var traderId = traderEntry.Key;
+                    if (traderId == null)
+                        continue;
+
+                    var trader = traderHelper.GetTrader(traderId, sessionId);
+                    if (trader?.Repair == null)
+                        continue;
+
+                    var loyalty = traderHelper.GetLoyaltyLevel(traderId, pmcProfile);
+                    var coefficient = loyalty?.RepairPriceCoefficient;
+                    if (!coefficient.HasValue)
+                        continue;
+
+                    if (!bestCoefficient.HasValue || coefficient.Value < bestCoefficient.Value)
+                        bestCoefficient = coefficient.Value;
+                }
+
+                return bestCoefficient;
+            }
+            catch (Exception ex)
+            {
+                LogWarning($"[QuickPrice] 获取商人维修系数失败: {ex.Message}", ex);
+                return null;
+            }
         }
 
         #endregion

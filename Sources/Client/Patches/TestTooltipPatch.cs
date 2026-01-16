@@ -983,7 +983,7 @@ namespace QuickPrice.Patches
                         traderText = PriceColorCoding.ApplyColor(traderText, traderPrice.PriceInRoubles);
                     }
 
-                    sb.Append($"<br>{traderText}");
+                    sb.Append($"\n{traderText}");
                 }
             }
             catch (System.Exception ex)

@@ -223,11 +223,11 @@ namespace QuickPrice.Patches
         }
 
         /// <summary>
-            /// 主搜索执行补丁 - 在 method_6 中引入自定义延迟
-            /// </summary>
-            [HarmonyPatch(typeof(GClass3515), "method_6")]
-            public static class MainSearchExecutionPatch
-            {
+        /// 主搜索执行补丁 - 在 method_6 中引入自定义延迟
+        /// </summary>
+        [HarmonyPatch(typeof(GClass3515), "method_6")]
+        public static class MainSearchExecutionPatch
+        {
             private static bool IsProcessing = false;
 
             [HarmonyPrefix]
@@ -338,7 +338,6 @@ namespace QuickPrice.Patches
                 }
             }
 
-
             /// <summary>
             /// 获取未知物品（替换原method_7）
             /// </summary>
@@ -420,6 +419,7 @@ namespace QuickPrice.Patches
                     }
                 }
             }
+
             /// <summary>
             /// 根据物品价格计算等级（1-6）- 复用你已有的逻辑
             /// </summary>

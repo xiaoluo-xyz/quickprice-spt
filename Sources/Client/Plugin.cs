@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using BepInEx;
 using BepInEx.Logging;
+using Comfort.Common;
 using UnityEngine;
 using QuickPrice.Config;
 using QuickPrice.Logging;
@@ -11,6 +12,7 @@ using QuickPrice.Services;
 using QuickPrice.Extensions;
 using QuickPrice.Utils;
 using EFT.Communications;
+using EFT.UI;
 using HarmonyLib;
 
 namespace QuickPrice
@@ -30,6 +32,9 @@ namespace QuickPrice
         // 价格刷新标志
         private static bool _isRefreshingPrices = false;
         private static DateTime _lastManualRefresh = DateTime.MinValue;
+        private static bool _isSyncingServerConfig = false;
+        private static DateTime _lastServerConfigSync = DateTime.MinValue;
+        private static readonly TimeSpan ServerConfigSyncInterval = TimeSpan.FromMinutes(5);
 
         private void Awake()
         {
@@ -255,6 +260,7 @@ namespace QuickPrice
         /// </summary>
         private async Task InitializeServerConfigAsync()
         {
+            _isSyncingServerConfig = true;
             try
             {
                 var success = await ServerConfigService.Instance.UpdateServerConfigAsync();
@@ -283,6 +289,11 @@ namespace QuickPrice
             catch (Exception ex)
             {
                 Log.LogError($"❌ 获取服务端配置失败: {ex.Message}");
+            }
+            finally
+            {
+                _lastServerConfigSync = DateTime.Now;
+                _isSyncingServerConfig = false;
             }
         }
 
@@ -318,6 +329,10 @@ namespace QuickPrice
                 new GridItemOnPointerEnterPatch().Enable();
                 new GridItemOnPointerExitPatch().Enable();
                 // Log.LogInfo("✅ 物品捕获补丁已启用");
+
+                // 注册拖拽状态捕获补丁
+                new ItemViewBeginDragPatch().Enable();
+                new ItemViewEndDragPatch().Enable();
 
                 // 注册价格显示补丁
                 new PriceTooltipPatch().Enable();
@@ -388,16 +403,97 @@ namespace QuickPrice
         {
             try
             {
+                EquipmentValueTracker.ProcessPending();
+
+                if (!_isSyncingServerConfig &&
+                    DateTime.Now - _lastServerConfigSync >= ServerConfigSyncInterval)
+                {
+                    _ = SyncServerConfigAsync();
+                }
+
                 // 检测刷新价格快捷键
                 if (Input.GetKeyDown(Settings.RefreshPricesKey.Value))
                 {
                     // 启动异步刷新（Fire-and-Forget）
                     _ = RefreshPricesManuallyAsync();
                 }
+
+                // 搜索音效测试：按 Y 随机播放枚举 UI 音效
+                if (Input.GetKeyDown(KeyCode.Y))
+                {
+                    var soundType = GetRandomUiSoundType();
+                    ClientLog.Debug($"🔊 UISound test key pressed: {soundType}");
+                    NotificationManagerClass.DisplayMessageNotification(
+                        $"QuickPrice: 播放 UI 音效 {soundType}",
+                        ENotificationDurationType.Default);
+                    Singleton<GUISounds>.Instance.PlayUISound(soundType);
+                }
+
+                // 搜索音效测试：按 U 随机播放自定义音效（1-6档）
+                if (Input.GetKeyDown(KeyCode.U))
+                {
+                    int level = UnityEngine.Random.Range(1, 7);
+                    ClientLog.Debug($"🔊 CustomSound test key pressed: level={level}");
+                    bool played = SearchSoundCustomAudio.TryPlayCustomSound(level, out var report);
+                    NotificationManagerClass.DisplayMessageNotification(
+                        $"QuickPrice: 自定义音效 level={level} {report} played={played}",
+                        ENotificationDurationType.Default);
+                }
             }
             catch (System.Exception ex)
             {
                 Log.LogError($"❌ 快捷键检测失败: {ex.Message}");
+            }
+        }
+
+        private static EUISoundType GetRandomUiSoundType()
+        {
+            var values = (EUISoundType[])Enum.GetValues(typeof(EUISoundType));
+            if (values.Length == 0)
+                return default;
+
+            for (int i = 0; i < values.Length; i++)
+            {
+                var candidate = values[UnityEngine.Random.Range(0, values.Length)];
+                if (!string.Equals(candidate.ToString(), "None", StringComparison.OrdinalIgnoreCase))
+                    return candidate;
+            }
+
+            return values[0];
+        }
+
+        private async Task SyncServerConfigAsync()
+        {
+            if (_isSyncingServerConfig)
+                return;
+
+            _isSyncingServerConfig = true;
+            try
+            {
+                var success = await ServerConfigService.Instance.UpdateServerConfigAsync();
+                if (!success)
+                {
+                    ClientLog.Debug("⚠️ 服务端配置同步失败，将在下次周期重试");
+                    return;
+                }
+
+                var config = ServerConfigService.Instance.GetConfig();
+                if (config == null)
+                {
+                    ClientLog.Debug("⚠️ 服务端配置为空，跳过同步");
+                    return;
+                }
+
+                Settings.ApplyServerConfigOverrides(config);
+            }
+            catch (Exception ex)
+            {
+                Log.LogError($"❌ 服务端配置同步失败: {ex.Message}");
+            }
+            finally
+            {
+                _lastServerConfigSync = DateTime.Now;
+                _isSyncingServerConfig = false;
             }
         }
 

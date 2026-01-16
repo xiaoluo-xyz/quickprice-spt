@@ -1,6 +1,7 @@
 using System;
 using System.Reflection;
 using System.Text;
+using EFT;
 using EFT.UI.SessionEnd;
 using HarmonyLib;
 using SPT.Reflection.Patching;
@@ -24,7 +25,7 @@ namespace QuickPrice.Patches
         }
 
         [PatchPostfix]
-        public static void Postfix(SessionResultExitStatus __instance)
+        public static void Postfix(SessionResultExitStatus __instance, ExitStatus exitStatus)
         {
             try
             {
@@ -39,19 +40,25 @@ namespace QuickPrice.Patches
                     return;
                 }
 
-                if (!string.IsNullOrEmpty(raidTimeText.text) && raidTimeText.text.Contains("本局收获"))
+                EquipmentValueTracker.PrepareForExitStatus();
+                EquipmentValueTracker.ApplyExitStatus(exitStatus);
+
+                bool alreadyInjected = !string.IsNullOrEmpty(raidTimeText.text) &&
+                    raidTimeText.text.Contains("本局收获");
+                if (!alreadyInjected)
                 {
-                    return;
+                    var builder = new StringBuilder();
+                    if (!string.IsNullOrEmpty(raidTimeText.text))
+                    {
+                        builder.Append(raidTimeText.text);
+                        builder.AppendLine();
+                    }
+                    builder.Append(RaidSummaryMetrics.BuildSettlementText());
+                    raidTimeText.text = builder.ToString();
                 }
 
-                var builder = new StringBuilder();
-                if (!string.IsNullOrEmpty(raidTimeText.text))
-                {
-                    builder.Append(raidTimeText.text);
-                    builder.AppendLine();
-                }
-                builder.Append(RaidSummaryMetrics.BuildSettlementText());
-                raidTimeText.text = builder.ToString();
+                RaidSummaryMetrics.Reset();
+                EquipmentValueTracker.ClearRaidSnapshots();
             }
             catch (Exception ex)
             {

@@ -17,6 +17,13 @@ namespace QuickPrice.Utils
     {
         private const string SupportedExtension = ".mp3";
         private static readonly Dictionary<int, AudioClip> LoadedClips = new Dictionary<int, AudioClip>();
+        private static readonly Dictionary<int, string> LoadedClipPaths = new Dictionary<int, string>();
+        private static readonly ClipLoadAttempt[] ClipLoadAttempts = new ClipLoadAttempt[]
+        {
+            new ClipLoadAttempt(AudioType.MPEG, streamAudio: false, compressed: false, "mpeg_decompress"),
+            new ClipLoadAttempt(AudioType.MPEG, streamAudio: true, compressed: true, "mpeg_stream"),
+            new ClipLoadAttempt(AudioType.UNKNOWN, streamAudio: true, compressed: true, "unknown_stream")
+        };
         private static readonly HashSet<int> LoadingLevels = new HashSet<int>();
         private static readonly HashSet<int> MissingLevels = new HashSet<int>();
         private static readonly object SyncRoot = new object();
@@ -29,17 +36,25 @@ namespace QuickPrice.Utils
         /// </summary>
         public static bool TryPlayCustomSound(int priceLevel)
         {
+            return TryPlayCustomSound(priceLevel, out _);
+        }
+
+        public static bool TryPlayCustomSound(int priceLevel, out string report)
+        {
             ClientLog.Debug($"🔊 TryPlayCustomSound: level={priceLevel}");
             var clip = TryGetLoadedClip(priceLevel);
             if (clip == null)
             {
                 ClientLog.Debug($"🔊 Clip not loaded, start async load: level={priceLevel}");
                 TryLoadAndPlay(priceLevel);
+                report = BuildClipReport(priceLevel, clip, "loading");
                 return false;
             }
 
+            EnsureClipLoaded(clip);
             var played = PlayClip(clip);
             ClientLog.Debug($"🔊 PlayClip result: level={priceLevel}, name={clip.name}, played={played}");
+            report = BuildClipReport(priceLevel, clip, played ? "played" : "not_played");
             return played;
         }
 
@@ -80,6 +95,12 @@ namespace QuickPrice.Utils
             lock (SyncRoot)
             {
                 LoadedClips.TryGetValue(priceLevel, out var clip);
+                if (clip != null && !IsClipValid(clip))
+                {
+                    ClientLog.Debug($"🔊 Invalid clip cached, evicting: level={priceLevel}, name={clip.name}");
+                    LoadedClips.Remove(priceLevel);
+                    clip = null;
+                }
                 if (clip != null)
                 {
                     ClientLog.Debug($"🔊 Cache hit: level={priceLevel}, name={clip.name}");
@@ -115,7 +136,15 @@ namespace QuickPrice.Utils
 
             string path = Path.Combine(baseDir, $"search_level{priceLevel}{SupportedExtension}");
             ClientLog.Debug($"🔊 ResolveClipPath: level={priceLevel}, path={path}, exists={File.Exists(path)}");
-            return File.Exists(path) ? path : null;
+            if (File.Exists(path))
+            {
+                lock (SyncRoot)
+                {
+                    LoadedClipPaths[priceLevel] = path;
+                }
+                return path;
+            }
+            return null;
         }
 
         private static string GetSearchSoundDirectory()
@@ -186,29 +215,42 @@ namespace QuickPrice.Utils
             return AudioSource;
         }
 
+        private static void EnsureClipLoaded(AudioClip clip)
+        {
+            if (clip == null)
+                return;
+
+            if (clip.loadState == AudioDataLoadState.Unloaded)
+            {
+                ClientLog.Debug($"🔊 Clip loadState=Unloaded, calling LoadAudioData: {clip.name}");
+                clip.LoadAudioData();
+            }
+        }
+
         private static bool PlayClip(AudioClip clip)
         {
             if (clip == null)
                 return false;
 
+            EnsureClipLoaded(clip);
             var guiSounds = Singleton<GUISounds>.Instance;
             if (guiSounds != null)
             {
-                ClientLog.Debug($"🔊 PlayClip via GUISounds: {clip.name}");
-                guiSounds.PlaySound(clip, single: false, commonUiSound: true);
+                ClientLog.Debug($"🔊 PlayClip via GUISounds(UI): {clip.name}");
+                guiSounds.PlaySound(clip);
                 return true;
             }
 
             var source = EnsureAudioSource();
-            if (source == null)
+            if (source != null)
             {
-                ClientLog.Debug($"🔊 PlayClip failed: no AudioSource, clip={clip.name}");
-                return false;
+                ClientLog.Debug($"🔊 PlayClip via AudioSource: {clip.name}");
+                source.PlayOneShot(clip);
+                return true;
             }
 
-            ClientLog.Debug($"🔊 PlayClip via AudioSource: {clip.name}");
-            source.PlayOneShot(clip);
-            return true;
+            ClientLog.Debug($"🔊 PlayClip failed: no GUISounds or AudioSource, clip={clip.name}");
+            return false;
         }
 
         private static void TryLoadAndPlay(int priceLevel)
@@ -239,88 +281,13 @@ namespace QuickPrice.Utils
         private static IEnumerator LoadClipCoroutine(int priceLevel, string path)
         {
             ClientLog.Debug($"🔊 LoadClipCoroutine start: level={priceLevel}, path={path}");
-            var uri = new Uri(path).AbsoluteUri;
-            var audioType = GetAudioType(path);
-
-            using (var request = UnityWebRequestMultimedia.GetAudioClip(uri, audioType))
-            {
-                yield return request.SendWebRequest();
-#if UNITY_2020_2_OR_NEWER
-                bool hasError = request.result != UnityWebRequest.Result.Success;
-#else
-                bool hasError = request.isNetworkError || request.isHttpError;
-#endif
-                if (hasError)
-                {
-                    Plugin.Log.LogError($"搜索音效加载失败: {path} - {request.error}");
-                    ClientLog.Debug($"🔊 LoadClipCoroutine error: level={priceLevel}, error={request.error}");
-                    MarkMissing(priceLevel);
-                    yield break;
-                }
-
-                var clip = DownloadHandlerAudioClip.GetContent(request);
-                if (clip == null)
-                {
-                    Plugin.Log.LogError($"搜索音效加载失败: {path} - AudioClip 为空");
-                    ClientLog.Debug($"🔊 LoadClipCoroutine clip null: level={priceLevel}");
-                    MarkMissing(priceLevel);
-                    yield break;
-                }
-
-                clip.name = Path.GetFileNameWithoutExtension(path);
-                lock (SyncRoot)
-                {
-                    LoadedClips[priceLevel] = clip;
-                    LoadingLevels.Remove(priceLevel);
-                }
-                ClientLog.Debug($"🔊 LoadClipCoroutine success: level={priceLevel}, name={clip.name}");
-            }
+            yield return LoadClipWithFallback(priceLevel, path, playAfterLoad: false);
         }
 
         private static IEnumerator LoadClipAndPlayCoroutine(int priceLevel, string path)
         {
             ClientLog.Debug($"🔊 LoadClipAndPlayCoroutine start: level={priceLevel}, path={path}");
-            var uri = new Uri(path).AbsoluteUri;
-            var audioType = GetAudioType(path);
-
-            using (var request = UnityWebRequestMultimedia.GetAudioClip(uri, audioType))
-            {
-                yield return request.SendWebRequest();
-#if UNITY_2020_2_OR_NEWER
-                bool hasError = request.result != UnityWebRequest.Result.Success;
-#else
-                bool hasError = request.isNetworkError || request.isHttpError;
-#endif
-                if (hasError)
-                {
-                    Plugin.Log.LogError($"搜索音效加载失败: {path} - {request.error}");
-                    ClientLog.Debug($"🔊 LoadClipAndPlayCoroutine error: level={priceLevel}, error={request.error}");
-                    MarkMissing(priceLevel);
-                    yield break;
-                }
-
-                var clip = DownloadHandlerAudioClip.GetContent(request);
-                if (clip == null)
-                {
-                    Plugin.Log.LogError($"搜索音效加载失败: {path} - AudioClip 为空");
-                    ClientLog.Debug($"🔊 LoadClipAndPlayCoroutine clip null: level={priceLevel}");
-                    MarkMissing(priceLevel);
-                    yield break;
-                }
-
-                clip.name = Path.GetFileNameWithoutExtension(path);
-                lock (SyncRoot)
-                {
-                    LoadedClips[priceLevel] = clip;
-                    LoadingLevels.Remove(priceLevel);
-                }
-                ClientLog.Debug($"🔊 LoadClipAndPlayCoroutine loaded: level={priceLevel}, name={clip.name}");
-
-                if (!PlayClip(clip))
-                {
-                    ClientLog.Debug($"搜索音效已加载但未播放: level={priceLevel}, path={path}");
-                }
-            }
+            yield return LoadClipWithFallback(priceLevel, path, playAfterLoad: true);
         }
 
         private static IEnumerator PreloadAllCoroutine()
@@ -357,13 +324,110 @@ namespace QuickPrice.Utils
             ClientLog.Debug($"🔊 MarkMissing: level={priceLevel}");
         }
 
-        private static AudioType GetAudioType(string path)
+        private static string BuildClipReport(int priceLevel, AudioClip clip, string status)
         {
-            switch (Path.GetExtension(path).ToLowerInvariant())
+            string path = null;
+            long size = 0;
+            lock (SyncRoot)
             {
-                case ".mp3":
-                default:
-                    return AudioType.MPEG;
+                LoadedClipPaths.TryGetValue(priceLevel, out path);
+            }
+            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            {
+                size = new FileInfo(path).Length;
+            }
+
+            if (clip == null)
+            {
+                return $"level={priceLevel}, status={status}, path={(path ?? "null")}, bytes={size}";
+            }
+
+            return $"level={priceLevel}, name={clip.name}, len={clip.length:F2}s, ch={clip.channels}, hz={clip.frequency}, samples={clip.samples}, load={clip.loadState}, status={status}, bytes={size}";
+        }
+
+        private static UnityWebRequest CreateAudioClipRequest(string uri, AudioType audioType, bool streamAudio, bool compressed)
+        {
+            var request = new UnityWebRequest(uri, UnityWebRequest.kHttpVerbGET);
+            var handler = new DownloadHandlerAudioClip(uri, audioType)
+            {
+                streamAudio = streamAudio,
+                compressed = compressed
+            };
+            request.downloadHandler = handler;
+            request.disposeDownloadHandlerOnDispose = true;
+            return request;
+        }
+
+        private static bool IsClipValid(AudioClip clip)
+        {
+            return clip != null && clip.length > 0f && clip.channels > 0 && clip.frequency > 0 && clip.samples > 0;
+        }
+
+        private static IEnumerator LoadClipWithFallback(int priceLevel, string path, bool playAfterLoad)
+        {
+            var uri = new Uri(path).AbsoluteUri;
+            for (int i = 0; i < ClipLoadAttempts.Length; i++)
+            {
+                var attempt = ClipLoadAttempts[i];
+                using (var request = CreateAudioClipRequest(uri, attempt.AudioType, attempt.StreamAudio, attempt.Compressed))
+                {
+                    yield return request.SendWebRequest();
+#if UNITY_2020_2_OR_NEWER
+                    bool hasError = request.result != UnityWebRequest.Result.Success;
+#else
+                    bool hasError = request.isNetworkError || request.isHttpError;
+#endif
+                    if (hasError)
+                    {
+                        ClientLog.Debug($"🔊 LoadClip attempt failed: level={priceLevel}, mode={attempt.Label}, error={request.error}");
+                        continue;
+                    }
+
+                    var clip = DownloadHandlerAudioClip.GetContent(request);
+                    if (!IsClipValid(clip))
+                    {
+                        ClientLog.Debug($"🔊 LoadClip attempt invalid: level={priceLevel}, mode={attempt.Label}, report={BuildClipReport(priceLevel, clip, "invalid")}");
+                        continue;
+                    }
+
+                    clip.name = Path.GetFileNameWithoutExtension(path);
+                    lock (SyncRoot)
+                    {
+                        LoadedClips[priceLevel] = clip;
+                        LoadingLevels.Remove(priceLevel);
+                        LoadedClipPaths[priceLevel] = path;
+                    }
+                    ClientLog.Debug($"🔊 LoadClip success: level={priceLevel}, name={clip.name}, mode={attempt.Label}");
+
+                    if (playAfterLoad)
+                    {
+                        EnsureClipLoaded(clip);
+                        if (!PlayClip(clip))
+                        {
+                            ClientLog.Debug($"搜索音效已加载但未播放: level={priceLevel}, path={path}");
+                        }
+                    }
+                    yield break;
+                }
+            }
+
+            Plugin.Log.LogError($"搜索音效加载失败: {path} - 所有解码方式均失败");
+            MarkMissing(priceLevel);
+        }
+
+        private readonly struct ClipLoadAttempt
+        {
+            public readonly AudioType AudioType;
+            public readonly bool StreamAudio;
+            public readonly bool Compressed;
+            public readonly string Label;
+
+            public ClipLoadAttempt(AudioType audioType, bool streamAudio, bool compressed, string label)
+            {
+                AudioType = audioType;
+                StreamAudio = streamAudio;
+                Compressed = compressed;
+                Label = label;
             }
         }
     }

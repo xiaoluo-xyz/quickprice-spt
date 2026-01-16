@@ -118,6 +118,10 @@ namespace QuickPrice.Config
         public static ConfigEntry<bool> ExcludeSpecialSlotsFromBroughtValue; // 带入价值排除特殊装备栏
         public static ConfigEntry<bool> ShowBroughtValueInRaid; // 战局内显示带入价值
         public static ConfigEntry<bool> ShowLossValueInRaid; // 战局内显示损耗价值
+        public static ConfigEntry<bool> IncludeWeaponDurabilityLoss; // 武器耐久计入损耗
+        public static ConfigEntry<bool> IncludeArmorDurabilityLoss; // 护甲耐久计入损耗
+        public static ConfigEntry<float> RepairCostPriceMultiplier; // 维修价格倍率
+        public static ConfigEntry<float> RepairPriceCoefficientPercent; // 商人维修系数百分比
 
         // ===== 6. 搜索设置 =====
         public static ConfigEntry<bool> EnableSearchSound;    // 搜索音效开关
@@ -703,6 +707,49 @@ namespace QuickPrice.Config
                 LegacySectionV2Features
             );
 
+            IncludeWeaponDurabilityLoss = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "武器耐久计入损耗",
+                true,
+                "战局内武器耐久变化是否计入损耗（按维修成本比例）",
+                LegacySectionV2Features
+            );
+
+            IncludeArmorDurabilityLoss = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "护甲耐久计入损耗",
+                true,
+                "战局内护甲/插板耐久变化是否计入损耗（按维修成本比例）",
+                LegacySectionV2Features
+            );
+
+            RepairCostPriceMultiplier = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "维修价格倍率",
+                1.0f,
+                new ConfigDescription(
+                    "计算耐久损耗时使用的维修价格倍率（对应服务端 RepairConfig.PriceMultiplier）",
+                    new AcceptableValueRange<float>(0f, 10f)
+                ),
+                LegacySectionV2Features
+            );
+
+            RepairPriceCoefficientPercent = BindWithLegacy(
+                config,
+                SectionRaidSummary,
+                "商人维修价格系数(%)",
+                0f,
+                new ConfigDescription(
+                    "商人维修价格系数百分比（对应 TraderRepair.RepairPriceCoefficient）\n" +
+                    "计算公式：(系数/100 + 1)，0 表示不加成",
+                    new AcceptableValueRange<float>(0f, 200f)
+                ),
+                LegacySectionV2Features
+            );
+
             // ===== 2. 价格显示 =====
             ShowTraderPrices = BindWithLegacy(
                 config,
@@ -926,6 +973,7 @@ namespace QuickPrice.Config
                 return false;
 
             _serverConfig = serverConfig;
+            ApplyServerRepairValues(serverConfig);
             bool overrideEnabled = serverConfig.OverrideClientConfig;
 
             if (overrideEnabled)
@@ -946,6 +994,31 @@ namespace QuickPrice.Config
             SetOverrideReadOnly(_serverOverrideEnabled);
             UpdateServerConfigStatus();
             return _serverOverrideEnabled;
+        }
+
+        private static void ApplyServerRepairValues(ServerClientConfig serverConfig)
+        {
+            if (serverConfig == null)
+                return;
+
+            if (_isApplyingOverrideValues)
+                return;
+
+            _isApplyingOverrideValues = true;
+            try
+            {
+                RunWithoutSaving(() =>
+                {
+                    if (serverConfig.RepairCostPriceMultiplier.HasValue)
+                        RepairCostPriceMultiplier.Value = serverConfig.RepairCostPriceMultiplier.Value;
+                    if (serverConfig.RepairPriceCoefficientPercent.HasValue)
+                        RepairPriceCoefficientPercent.Value = serverConfig.RepairPriceCoefficientPercent.Value;
+                });
+            }
+            finally
+            {
+                _isApplyingOverrideValues = false;
+            }
         }
 
         public static bool IsServerOverrideEnabled() => _serverOverrideEnabled;

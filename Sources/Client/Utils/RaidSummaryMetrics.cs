@@ -15,6 +15,7 @@ namespace QuickPrice.Utils
         private static long _lootValue;
         private static long _settlementValue;
         private static bool _isInRaid;
+        private static bool _hasRaidSummary;
 
         public static long BroughtValue
         {
@@ -76,6 +77,17 @@ namespace QuickPrice.Utils
             }
         }
 
+        public static bool HasRaidSummary
+        {
+            get => _hasRaidSummary;
+            set
+            {
+                if (_hasRaidSummary == value)
+                    return;
+                _hasRaidSummary = value;
+            }
+        }
+
         private const string PositiveColor = "#6FA36A";
         private const string NegativeColor = "#C24A4A";
         private const string NeutralColor = "#FFFFFF";
@@ -88,6 +100,7 @@ namespace QuickPrice.Utils
             changed |= SetValue(ref _lootValue, 0);
             changed |= SetValue(ref _settlementValue, 0);
             changed |= SetFlag(ref _isInRaid, false);
+            changed |= SetFlag(ref _hasRaidSummary, false);
             if (changed)
             {
                 ValuesChanged?.Invoke();
@@ -96,12 +109,13 @@ namespace QuickPrice.Utils
 
         public static string BuildSettlementText()
         {
-            string amount = FormatRuble(SettlementValue);
-            if (SettlementValue > 0)
+            long settlementValue = LootValue - LossValue;
+            string amount = FormatRuble(settlementValue);
+            if (settlementValue > 0)
             {
                 return $"<color={PositiveColor}>本局收获: {amount}</color>";
             }
-            if (SettlementValue < 0)
+            if (settlementValue < 0)
             {
                 return $"<color={NegativeColor}>本局收获: {amount}</color>";
             }

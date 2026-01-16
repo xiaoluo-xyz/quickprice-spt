@@ -47,7 +47,8 @@ namespace QuickPrice.Patches
         [PatchPrefix]
         public static void Prefix()
         {
-            EquipmentValueTracker.Clear();
+            EquipmentValueTracker.FinalizeRaidSummary();
+            EquipmentValueTracker.Clear(resetMetrics: false);
         }
     }
 }
