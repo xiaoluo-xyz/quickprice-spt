@@ -179,6 +179,22 @@ namespace QuickPrice.Patches
             public static TaxonomyColor Armor_Class6 => LightRed;     // 6级护甲 - 鲜红色
         }
 
+        /// <summary>
+        /// 获取着色用的价格：开启「按商人单格价值着色」时使用最优商人回收价，
+        /// 商人无收购价或开关关闭时使用跳蚤价格
+        /// </summary>
+        private static double? GetPriceForColoring(Item item)
+        {
+            if (Settings.UseTraderPriceForColor.Value)
+            {
+                var traderPrice = TraderPriceService.Instance.GetBestTraderPrice(item)?.PriceInRoubles;
+                if (traderPrice.HasValue && traderPrice.Value > 0)
+                    return traderPrice.Value;
+            }
+
+            return PriceDataService.Instance.GetPrice(item.TemplateId);
+        }
+
         protected override MethodBase GetTargetMethod()
         {
             // 尝试获取 BackgroundColor 属性的 getter 方法
@@ -289,7 +305,7 @@ namespace QuickPrice.Patches
                     }
 
                     // 如果无法获取子弹信息，按价格着色
-                    var ammoBoxPrice = PriceDataService.Instance.GetPrice(__instance.TemplateId);
+                    var ammoBoxPrice = GetPriceForColoring(__instance);
                     if (ammoBoxPrice.HasValue)
                     {
                         int slots = __instance.Width * __instance.Height;
@@ -305,7 +321,7 @@ namespace QuickPrice.Patches
                 // 注意：弹匣已在上面被排除
                 if (__instance is Mod)
                 {
-                    var price = PriceDataService.Instance.GetPrice(__instance.TemplateId);
+                    var price = GetPriceForColoring(__instance);
                     if (!price.HasValue)
                         return true; // 无价格数据，使用原始颜色
 
@@ -318,7 +334,7 @@ namespace QuickPrice.Patches
                 }
 
                 // 7. 其他物品 - 按单格价值着色
-                var itemPrice = PriceDataService.Instance.GetPrice(__instance.TemplateId);
+                var itemPrice = GetPriceForColoring(__instance);
                 if (!itemPrice.HasValue)
                     return true; // 无价格数据，使用原始颜色
 

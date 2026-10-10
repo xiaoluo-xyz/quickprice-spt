@@ -7,6 +7,7 @@ using EFT;
 using EFT.InventoryLogic;
 using QuickPrice.Models;
 using QuickPrice.Extensions;
+using QuickPrice.Logging;
 
 namespace QuickPrice.Services
 {
@@ -32,6 +33,18 @@ namespace QuickPrice.Services
         private Dictionary<string, TraderPrice> _priceCache = new Dictionary<string, TraderPrice>();
 
         /// <summary>
+        /// 已确认「无任何商人收购」的物品缓存（防止每次悬停都重复计算）
+        /// 仅在商人数据已就绪且遍历后仍无人收购时才会写入；
+        /// 服务端回收价表 miss 时会先尝试本地计算，该表不会遮挡服务端数据
+        /// </summary>
+        private readonly HashSet<string> _noPriceCache = new HashSet<string>();
+
+        /// <summary>
+        /// 已记录过「服务端回收价表缺失」日志的物品（防止日志刷屏）
+        /// </summary>
+        private readonly HashSet<string> _serverMissLogged = new HashSet<string>();
+
+        /// <summary>
         /// 反射属性缓存（避免重复反射）
         /// Key: 物品类型 (Type), Value: IsContainer 属性信息
         /// </summary>
@@ -50,20 +63,33 @@ namespace QuickPrice.Services
             {
                 // ===== 优化1: 先查缓存 =====
                 string cacheKey = item.TemplateId;
+
+                // 服务端回收价表优先（数据完整时最准确、性能最好）
                 if (TryGetServerTraderPrice(cacheKey, out var serverPrice, out var serverReady))
                 {
                     return serverPrice;
                 }
 
-                if (serverReady)
+                // 服务端表已就绪但缺少该物品时不再直接返回 null（常见于模组配件：
+                // 服务端缓存构建早于模组数据注入），改为回退到本地商人实时计算，
+                // 避免模组物品错误地显示跳蚤价格。
+                // 本地计算结果会写入 _priceCache，且服务端表刷新后仍优先命中服务端数据。
+
+                if (serverReady && _serverMissLogged.Add(cacheKey))
                 {
-                    return null;
+                    ClientLog.Debug($"⚠️ 服务端回收价表缺少 {item.LocalizedName()} ({cacheKey})，回退本地商人计算");
                 }
 
                 if (_priceCache.TryGetValue(cacheKey, out var cachedPrice))
                 {
                     // Plugin.Log.LogDebug($"💾 命中缓存: {item.LocalizedName()} = {cachedPrice.PriceInRoubles:N0}₽");
                     return cachedPrice;
+                }
+
+                // 已确认无人收购（且商人数据曾就绪），直接返回
+                if (_noPriceCache.Contains(cacheKey))
+                {
+                    return null;
                 }
 
                 TraderPrice highestPrice = null;
@@ -87,12 +113,14 @@ namespace QuickPrice.Services
                 }
 
                 // 遍历所有商人
+                int availableTraders = 0;
                 foreach (TraderClass trader in traders)
                 {
                     // 检查商人是否可用
                     if (!IsTraderAvailable(trader))
                         continue;
 
+                    availableTraders++;
                     try
                     {
                         Item itemToPrice;
@@ -148,9 +176,10 @@ namespace QuickPrice.Services
                             );
                         }
                     }
-                    catch (Exception)
+                    catch (Exception ex)
                     {
-                        // 静默跳过失败的商人
+                        // 记录失败原因（Debug级别），便于排查模组物品估价失败问题
+                        ClientLog.Debug($"   商人 {GetTraderNameSafe(trader)} 估价异常（{item.LocalizedName()}）: {ex.Message}");
                         continue;
                     }
                 }
@@ -172,7 +201,19 @@ namespace QuickPrice.Services
                 if (highestPrice != null)
                 {
                     _priceCache[cacheKey] = highestPrice;
+                    ClientLog.Debug($"✅ 本地商人估价: {item.LocalizedName()} = {highestPrice.PriceInRoubles:N0}₽（{highestPrice.TraderName}）");
                     // Plugin.Log.LogDebug($"💾 保存缓存: {item.LocalizedName()} = {highestPrice.PriceInRoubles:N0}₽");
+                }
+                else if (availableTraders > 0)
+                {
+                    // 商人数据已就绪且遍历后仍无人收购：缓存负结果，避免每次悬停重复计算
+                    // 若商人数据尚未加载（availableTraders == 0），不缓存以便下次重试
+                    _noPriceCache.Add(cacheKey);
+                    ClientLog.Debug($"❌ 本地商人估价: {item.LocalizedName()} 无商人收购（已遍历 {availableTraders} 个可用商人），加入负缓存");
+                }
+                else
+                {
+                    ClientLog.Debug($"⏳ 本地商人估价: {item.LocalizedName()} 商人数据未就绪，下次悬停重试");
                 }
 
                 return highestPrice;
@@ -248,6 +289,7 @@ namespace QuickPrice.Services
         public void ClearCache()
         {
             _priceCache.Clear();
+            _noPriceCache.Clear();
             // Plugin.Log.LogInfo("🔄 商人价格缓存已清除");
         }
 
@@ -299,6 +341,25 @@ namespace QuickPrice.Services
             catch
             {
                 return false;
+            }
+        }
+
+        /// <summary>
+        /// 安全地获取商人名称（用于日志）
+        /// </summary>
+        private static string GetTraderNameSafe(TraderClass trader)
+        {
+            try
+            {
+                if (trader == null)
+                    return "?";
+
+                var name = trader.LocalizedName;
+                return string.IsNullOrWhiteSpace(name) ? trader.Id?.ToString() ?? "?" : name;
+            }
+            catch
+            {
+                return "?";
             }
         }
 

@@ -76,9 +76,8 @@ namespace QuickPrice.Patches
             if (!Settings.PluginEnabled.Value)
                 return;
 
-            // 检查是否启用跳蚤价格
-            if (!Settings.ShowFleaPrices.Value)
-                return;
+            // 注意：不再因关闭「显示跳蚤市场价格」而直接退出
+            // 该开关只控制跳蚤价格行，商人价格/单格价值/颜色等仍应正常显示
 
             // 检查是否需要按住Ctrl键
             if (Settings.RequireCtrlKey.Value && !IsCtrlPressed())
@@ -258,6 +257,10 @@ namespace QuickPrice.Patches
             if (item == null)
                 return false;
 
+            // 全局开关：关闭「显示跳蚤市场价格」时隐藏所有跳蚤价格行
+            if (!Settings.ShowFleaPrices.Value)
+                return false;
+
             if (ShouldHideRagfairPriceForNonFIR(item))
                 return false;
 
@@ -268,6 +271,11 @@ namespace QuickPrice.Patches
         {
             if (item == null)
                 return fleaPrice ?? traderPrice;
+
+            // 关闭「显示跳蚤市场价格」时优先使用商人回收价，
+            // 保证商人价格、单格价值、颜色编码在关闭跳蚤价格后仍然可用
+            if (!Settings.ShowFleaPrices.Value)
+                return traderPrice ?? fleaPrice;
 
             if (RagfairHelper.ShouldUseTraderPriceForBannedItems(item))
                 return traderPrice ?? fleaPrice;
@@ -596,7 +604,7 @@ namespace QuickPrice.Patches
                         int weaponSlots = weapon.Width * weapon.Height;
                         double pricePerSlot = weaponSlots > 0 ? totalPrice / weaponSlots : totalPrice;
 
-                        coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
+                        coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(weapon, weaponSlots, pricePerSlot));
                     }
                 }
                 else if (item is AmmoBox ammoBox)
@@ -633,7 +641,7 @@ namespace QuickPrice.Patches
                         {
                             int ammoBoxSlots = ammoBox.Width * ammoBox.Height;
                             double pricePerSlot = ammoBoxSlots > 0 ? boxDisplayPrice.Value / ammoBoxSlots : boxDisplayPrice.Value;
-                            coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
+                            coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(ammoBox, ammoBoxSlots, pricePerSlot));
                         }
                     }
                 }
@@ -670,7 +678,7 @@ namespace QuickPrice.Patches
                         {
                             int magSlots = magazine.Width * magazine.Height;
                             double pricePerSlot = magSlots > 0 ? magDisplayPrice.Value / magSlots : magDisplayPrice.Value;
-                            coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
+                            coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(magazine, magSlots, pricePerSlot));
                         }
                     }
                 }
@@ -693,7 +701,7 @@ namespace QuickPrice.Patches
                             double totalPrice = ammoDisplayPrice.Value * stackCount;
                             int ammoSlots = ammo.Width * ammo.Height;
                             double pricePerSlot = ammoSlots > 0 ? totalPrice / ammoSlots : totalPrice;
-                            coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
+                            coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(ammo, ammoSlots, pricePerSlot, stackCount));
                         }
                     }
                 }
@@ -718,7 +726,7 @@ namespace QuickPrice.Patches
                         {
                             int armorSlots = item.Width * item.Height;
                             double pricePerSlot = armorSlots > 0 ? armorDisplayPrice.Value / armorSlots : armorDisplayPrice.Value;
-                            coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
+                            coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(item, armorSlots, pricePerSlot));
                         }
                     }
                 }
@@ -743,7 +751,7 @@ namespace QuickPrice.Patches
                         {
                             int plateSlots = item.Width * item.Height;
                             double pricePerSlot = plateSlots > 0 ? plateDisplayPrice.Value / plateSlots : plateDisplayPrice.Value;
-                            coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
+                            coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(item, plateSlots, pricePerSlot));
                         }
                     }
                 }
@@ -759,7 +767,7 @@ namespace QuickPrice.Patches
                         double totalPrice = displayPrice.Value * stackCount;
                         int itemSlots = item.Width * item.Height;
                         double pricePerSlot = itemSlots > 0 ? totalPrice / itemSlots : totalPrice;
-                        coloredName = PriceColorCoding.ApplyColor(itemName, pricePerSlot);
+                        coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(item, itemSlots, pricePerSlot, stackCount));
                     }
                 }
 
@@ -894,6 +902,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
+            AppendTraderPricePerSlotIfEnabled(sb, weapon, slots);
+
             // 显示枪械本体价格
             sb.Append($"\n枪械价格: {TextFormatting.FormatPrice(displayWeaponPrice)}");
 
@@ -984,7 +994,14 @@ namespace QuickPrice.Patches
                     // 应用颜色编码
                     if (Settings.EnableColorCoding.Value)
                     {
-                        traderText = PriceColorCoding.ApplyColor(traderText, traderPrice.PriceInRoubles);
+                        // 开启「按商人单格价值着色」时按商人单格价值划分颜色，否则保持按总价划分
+                        double colorPrice = traderPrice.PriceInRoubles;
+                        if (Settings.UseTraderPriceForColor.Value)
+                        {
+                            int itemSlots = item.Width * item.Height;
+                            colorPrice = itemSlots > 0 ? traderPrice.PriceInRoubles / itemSlots : traderPrice.PriceInRoubles;
+                        }
+                        traderText = PriceColorCoding.ApplyColor(traderText, colorPrice);
                     }
 
                     sb.Append($"\n{traderText}");
@@ -994,6 +1011,57 @@ namespace QuickPrice.Patches
             {
                 Plugin.Log.LogError($"❌ 获取商人价格失败: {ex.Message}");
                 Plugin.Log.LogError(ex.StackTrace);
+            }
+        }
+
+        /// <summary>
+        /// 添加商人单格价值行（如果启用且能获取到最优商人价格）
+        /// 与跳蚤「单格」行相互独立，由「显示商人单格价值」开关控制
+        /// </summary>
+        private static void AppendTraderPricePerSlotIfEnabled(StringBuilder sb, Item item, int slots, int stackCount = 1)
+        {
+            if (!Settings.ShowTraderPricePerSlot.Value || slots <= 1)
+                return;
+
+            try
+            {
+                var traderPrice = TraderPriceService.Instance.GetBestTraderPrice(item);
+                if (traderPrice == null || traderPrice.PriceInRoubles <= 0)
+                    return;
+
+                int effectiveCount = stackCount > 0 ? stackCount : 1;
+                double traderPerSlot = traderPrice.PriceInRoubles * effectiveCount / slots;
+                sb.Append($"\n商人单格: {TextFormatting.FormatPrice(traderPerSlot)}");
+            }
+            catch (System.Exception ex)
+            {
+                Plugin.Log.LogError($"❌ 获取商人单格价值失败: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 获取用于颜色划分的单格价值：
+        /// 开启「按商人单格价值着色」时优先使用最优商人价格的单格价值，
+        /// 商人无收购价或发生异常时回退为默认（跳蚤-based）单格价值
+        /// </summary>
+        private static double GetPricePerSlotForColor(Item item, int slots, double fallbackPerSlot, int stackCount = 1)
+        {
+            if (!Settings.UseTraderPriceForColor.Value || item == null)
+                return fallbackPerSlot;
+
+            try
+            {
+                var traderPrice = TraderPriceService.Instance.GetBestTraderPrice(item)?.PriceInRoubles;
+                if (!traderPrice.HasValue || traderPrice.Value <= 0)
+                    return fallbackPerSlot;
+
+                int effectiveCount = stackCount > 0 ? stackCount : 1;
+                double total = traderPrice.Value * effectiveCount;
+                return slots > 0 ? total / slots : total;
+            }
+            catch
+            {
+                return fallbackPerSlot;
             }
         }
 
@@ -1009,6 +1077,10 @@ namespace QuickPrice.Patches
         private static void AppendRagfairBanLineIfNeeded(StringBuilder sb, Item item, bool showRagfairPrice)
         {
             if (showRagfairPrice)
+                return;
+
+            // 关闭「显示跳蚤市场价格」时无需显示跳蚤禁售提示
+            if (!Settings.ShowFleaPrices.Value)
                 return;
 
             var label = RagfairHelper.GetRagfairBanLabel(item);
@@ -1169,6 +1241,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
+            AppendTraderPricePerSlotIfEnabled(sb, item, slots);
+
             // Plugin.Log.LogDebug($"✅ 物品价格: {item.LocalizedName()} = {price.Value:N0}₽");
 
             return sb.ToString();
@@ -1234,6 +1308,8 @@ namespace QuickPrice.Patches
                 double pricePerSlot = totalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
+
+            AppendTraderPricePerSlotIfEnabled(sb, item, slots, effectiveCount);
 
             // Plugin.Log.LogDebug($"✅ 堆叠物品: {item.LocalizedName()} = 总价{totalPrice:N0}₽ (单价{unitPrice.Value:N0}₽ x{stackCount})");
 
@@ -1419,6 +1495,8 @@ namespace QuickPrice.Patches
                 double pricePerSlot = displayTotalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
+
+            AppendTraderPricePerSlotIfEnabled(sb, ammoBox, slots);
 
             // Plugin.Log.LogDebug($"✅ 弹匣: {ammoBox.LocalizedName()} = 总价{totalPrice:N0}₽ (弹匣{boxPrice.Value:N0}₽ + 子弹{ammosPrice:N0}₽ x{ammoCount})");
 
@@ -1621,6 +1699,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
+            AppendTraderPricePerSlotIfEnabled(sb, magazine, slots);
+
             // Plugin.Log.LogDebug($"✅ 弹匣: {magazine.LocalizedName()} = 总价{totalPrice:N0}₽ (弹匣{magPrice.Value:N0}₽ + 子弹{ammosPrice:N0}₽ x{ammoCount})");
 
             return sb.ToString();
@@ -1754,6 +1834,8 @@ namespace QuickPrice.Patches
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
 
+            AppendTraderPricePerSlotIfEnabled(sb, armor, slots);
+
             // 显示防弹等级（如果启用）
             if (Settings.ShowArmorClass.Value)
             {
@@ -1840,6 +1922,8 @@ namespace QuickPrice.Patches
                 double pricePerSlot = plateDisplayPrice.Value / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
+
+            AppendTraderPricePerSlotIfEnabled(sb, plate, slots);
 
             // 显示防弹等级（如果启用）
             if (Settings.ShowArmorClass.Value)
@@ -1936,6 +2020,8 @@ namespace QuickPrice.Patches
                 double pricePerSlot = displayTotalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
+
+            AppendTraderPricePerSlotIfEnabled(sb, mod, slots);
 
             // 显示配件本体价格
             sb.Append($"\n配件价格: {TextFormatting.FormatPrice(modDisplayPrice.Value)}");
@@ -2150,6 +2236,8 @@ namespace QuickPrice.Patches
                     sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
                 }
 
+                AppendTraderPricePerSlotIfEnabled(sb, container, slots);
+
                 // 显示容器本身价格
                 sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}");
 
@@ -2197,6 +2285,8 @@ namespace QuickPrice.Patches
                     double pricePerSlot = containerDisplayPrice.Value / slots;
                     sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
                 }
+
+                AppendTraderPricePerSlotIfEnabled(sb, container, slots);
 
                 // 显示容器本身价格
                 sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}");
@@ -2246,6 +2336,8 @@ namespace QuickPrice.Patches
                 double pricePerSlot = totalPrice / slots;
                 sb.Append($"\n单格: {TextFormatting.FormatPrice(pricePerSlot)}");
             }
+
+            AppendTraderPricePerSlotIfEnabled(sb, container, slots);
 
             // 显示容器本身价格
             sb.Append($"\n容器价值: {TextFormatting.FormatPrice(containerDisplayPrice.Value)}");

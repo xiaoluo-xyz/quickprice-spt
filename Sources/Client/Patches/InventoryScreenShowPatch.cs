@@ -34,6 +34,10 @@ namespace QuickPrice.Patches
                 // 进入游戏后刷新跳蚤禁售列表（后台异步，不阻塞）
                 PriceDataService.Instance.StartLoadRagfairBannedItems();
 
+                // 商人回收价表若启动时未加载成功（服务端尚未构建完成），在此处继续补抓
+                // 非强制：仅在缓存未就绪时才会真正发起请求
+                _ = PriceDataService.Instance.UpdateTraderBuybackPricesAsync();
+
                 // 检查配置是否启用自动刷新
                 if (!Settings.AutoRefreshOnOpenInventory.Value)
                 {

@@ -1,4 +1,4 @@
-﻿// ----------------------------------------------------------------------------
+// ----------------------------------------------------------------------------
 // QuickPrice - Custom Static Router
 // 处理HTTP路由注册和请求处理
 // ----------------------------------------------------------------------------
@@ -145,6 +145,11 @@ namespace QuickPrice.Server
                         _isTraderBuybackPreloadStarted = true;
                         _ = PreloadTraderBuybackPriceCacheAsync();
                     }
+
+                    // 无论预加载成功与否都启动自动刷新定时器。
+                    // 预加载可能因模组仍在并发修改数据表而失败，
+                    // 若定时器不启动，商人回收价缓存将永远不会重建（模组配件会永久缺失）。
+                    StartAutoRefreshTimer();
                 }
                 else
                 {
@@ -715,7 +720,7 @@ namespace QuickPrice.Server
         /// <summary>
         /// 处理获取商人回收价格表的请求（每个物品保留最高价商人）
         /// </summary>
-        private static ValueTask<string> HandleGetTraderBuybackPriceTable(
+        private static async Task<string> HandleGetTraderBuybackPriceTable(
             string url,
             EmptyRequestData info,
             MongoId sessionId)
@@ -724,7 +729,7 @@ namespace QuickPrice.Server
             {
                 EnsureConfigLoaded();
                 if (!IsEnabled())
-                    return new ValueTask<string>(JsonSerializer.Serialize(new Dictionary<string, TraderBuybackPrice>()));
+                    return JsonSerializer.Serialize(new Dictionary<string, TraderBuybackPrice>());
 
                 var cacheAgeSeconds = (DateTime.Now - _traderBuybackCacheTime).TotalSeconds;
                 int cacheTimeoutSeconds = _config?.CacheTimeoutSeconds ?? 300;
@@ -732,31 +737,29 @@ namespace QuickPrice.Server
 
                 if (isCacheValid)
                 {
-                    var cacheAgeMinutes = cacheAgeSeconds / 60d;
                     var json = JsonSerializer.Serialize(_cachedTraderBuybackPrices);
-                    return new ValueTask<string>(json);
+                    return json;
                 }
 
-                if (!_isUpdatingTraderBuybackCache)
-                {
-                    _ = UpdateTraderBuybackPriceCacheAsync();
-                }
+                // 缓存已过期：等待重建完成后再返回，确保客户端总能拿到最新数据。
+                // 构建耗时约100-300毫秒，且客户端仅在启动/F10刷新时请求，短暂等待可接受。
+                // （若继续返回旧缓存，客户端会把缺失模组配件的旧表当作新数据使用）
+                await UpdateTraderBuybackPriceCacheAsync();
 
                 if (_cachedTraderBuybackPrices != null)
                 {
-                    var cacheAgeMinutes = cacheAgeSeconds / 60d;
                     var json = JsonSerializer.Serialize(_cachedTraderBuybackPrices);
-                    return new ValueTask<string>(json);
+                    return json;
                 }
 
                 var fallback = JsonSerializer.Serialize(new Dictionary<string, TraderBuybackPrice>());
-                return new ValueTask<string>(fallback);
+                return fallback;
             }
             catch (Exception ex)
             {
                 LogError($"[QuickPrice] 获取商人回收价格表失败: {ex.Message}", ex);
                 var fallback = JsonSerializer.Serialize(new Dictionary<string, TraderBuybackPrice>());
-                return new ValueTask<string>(fallback);
+                return fallback;
             }
         }
 
@@ -797,14 +800,32 @@ namespace QuickPrice.Server
                 {
                     var tables = _databaseServiceStatic.GetTables();
 
-                    // 先加载静态价格
+                    // 先加载静态价格（先快照再遍历，避免模组并发修改集合导致枚举失败）
                     if (tables?.Templates?.Prices != null)
                     {
-                        foreach (var priceEntry in tables.Templates.Prices)
+                        for (int attempt = 1; attempt <= 3; attempt++)
                         {
-                            if (priceEntry.Value > 0)
+                            try
                             {
-                                priceTable[priceEntry.Key] = priceEntry.Value;
+                                var priceSnapshot = tables.Templates.Prices.ToArray();
+                                foreach (var priceEntry in priceSnapshot)
+                                {
+                                    if (priceEntry.Value > 0)
+                                    {
+                                        priceTable[priceEntry.Key] = priceEntry.Value;
+                                    }
+                                }
+                                break;
+                            }
+                            catch (InvalidOperationException)
+                            {
+                                if (attempt >= 3)
+                                {
+                                    throw;
+                                }
+
+                                LogWarning($"[QuickPrice] 静态价格表正在修改，{attempt}/3，稍后重试", null);
+                                System.Threading.Thread.Sleep(100 * attempt);
                             }
                         }
                     }

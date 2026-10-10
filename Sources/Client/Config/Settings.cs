@@ -58,6 +58,7 @@ namespace QuickPrice.Config
         public static ConfigEntry<bool> ShowTraderPrices;      // 显示商人价格
         public static ConfigEntry<bool> ShowFleaTax;            // 显示跳蚤税费
         public static ConfigEntry<bool> ShowPricePerSlot;
+        public static ConfigEntry<bool> ShowTraderPricePerSlot; // 显示商人单格价值
         public static ConfigEntry<bool> ShowWeaponModsPrice;
         public static ConfigEntry<bool> ShowDetailedWeaponMods;
         public static ConfigEntry<bool> ShowBestPriceInBold;
@@ -72,6 +73,7 @@ namespace QuickPrice.Config
 
         // ===== 4. 颜色与显示 =====
         public static ConfigEntry<bool> EnableColorCoding;
+        public static ConfigEntry<bool> UseTraderPriceForColor; // 按商人单格价值着色
         public static ConfigEntry<bool> UseCaliberPenetrationPower;
         public static ConfigEntry<bool> ColorItemName;
         public static ConfigEntry<bool> EnablePriceBasedBackgroundColor;
@@ -248,6 +250,17 @@ namespace QuickPrice.Config
                 LegacySectionMain
             );
 
+            ShowTraderPricePerSlot = BindWithLegacy(
+                config,
+                SectionPriceDisplay,
+                "显示商人单格价值",
+                false,
+                "在物品提示框中额外显示最优商人价格的单格价值（商人回收价 ÷ 格数）\n" +
+                "与「显示每格价格」互不冲突，可同时显示跳蚤单格与商人单格\n" +
+                "⚠️ 需要商人数据已加载（首次使用请先打开一次商人界面）",
+                LegacySectionMain
+            );
+
             ShowWeaponModsPrice = BindWithLegacy(
                 config,
                 SectionPriceDisplay,
@@ -349,6 +362,18 @@ namespace QuickPrice.Config
                 true,
                 "根据价格自动着色物品名称\n" +
                 "白色≤3千 | 绿色≤1万 | 蓝色≤2万 | 紫色≤5万 | 橙色≤10万 | 红色>10万",
+                LegacySectionDisplay
+            );
+
+            UseTraderPriceForColor = BindWithLegacy(
+                config,
+                SectionColorDisplay,
+                "按商人单格价值着色",
+                false,
+                "物品名称/背景/地面标签的颜色改按「最优商人价格的单格价值」划分\n" +
+                "开启后颜色阈值仍使用「4.1 价格颜色阈值」的配置\n" +
+                "商人无收购价的物品回退为跳蚤单格价值着色\n" +
+                "子弹穿甲等级与护甲等级着色不受此选项影响",
                 LegacySectionDisplay
             );
 

@@ -346,7 +346,7 @@ namespace QuickPrice.Patches
                 }
 
                 // ===== 检查颜色缓存 =====
-                string cacheKey = $"{lootItem.TemplateId}|{originalText}|{Settings.ShowGroundItemPrice.Value}|{Settings.RagfairBannedPriceSource.Value}";
+                string cacheKey = $"{lootItem.TemplateId}|{originalText}|{Settings.ShowGroundItemPrice.Value}|{Settings.RagfairBannedPriceSource.Value}|{Settings.ShowFleaPrices.Value}|{Settings.UseTraderPriceForColor.Value}";
                 lock (_colorCacheLock)
                 {
                     if (_colorCache.TryGetValue(cacheKey, out string cachedColoredText))
@@ -409,7 +409,7 @@ namespace QuickPrice.Patches
                         // 无法获取护甲等级，按价格着色
                         int slots = item.Width * item.Height;
                         double pricePerSlot = slots > 0 ? priceValue / slots : priceValue;
-                        coloredText = PriceColorCoding.ApplyColor(originalText, pricePerSlot);
+                        coloredText = PriceColorCoding.ApplyColor(originalText, GetGroundPricePerSlotForColor(item, slots, pricePerSlot));
 
                         if (Settings.ShowGroundItemPrice.Value)
                         {
@@ -422,7 +422,7 @@ namespace QuickPrice.Patches
                 {
                     int slots = item.Width * item.Height;
                     double pricePerSlot = slots > 0 ? priceValue / slots : priceValue;
-                    coloredText = PriceColorCoding.ApplyColor(originalText, pricePerSlot);
+                    coloredText = PriceColorCoding.ApplyColor(originalText, GetGroundPricePerSlotForColor(item, slots, pricePerSlot));
 
                     // 价格信息（如果启用）
                     if (Settings.ShowGroundItemPrice.Value)
@@ -503,7 +503,7 @@ namespace QuickPrice.Patches
                     priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(totalPrice)})</color>";
                 }
 
-                return PriceColorCoding.ApplyColor(originalText, pricePerSlot);
+                return PriceColorCoding.ApplyColor(originalText, GetGroundPricePerSlotForColor(ammoBox, slots, pricePerSlot));
             }
             catch (Exception ex)
             {
@@ -519,7 +519,7 @@ namespace QuickPrice.Patches
                     priceInfo = $" <color=#B0B0B0>({TextFormatting.FormatPrice(totalPrice)})</color>";
                 }
 
-                return PriceColorCoding.ApplyColor(originalText, pricePerSlot);
+                return PriceColorCoding.ApplyColor(originalText, GetGroundPricePerSlotForColor(ammoBox, slots, pricePerSlot));
             }
         }
 
@@ -570,7 +570,38 @@ namespace QuickPrice.Patches
                 return traderPrice ?? fleaPrice;
             }
 
+            // 关闭「显示跳蚤市场价格」时，地面物品价格改用商人回收价
+            if (!Settings.ShowFleaPrices.Value)
+            {
+                var traderPrice = TraderPriceService.Instance.GetBestTraderPrice(item)?.PriceInRoubles;
+                return traderPrice ?? fleaPrice;
+            }
+
             return fleaPrice;
+        }
+
+        /// <summary>
+        /// 获取地面物品着色用的单格价值：
+        /// 开启「按商人单格价值着色」时优先使用最优商人价格的单格价值，
+        /// 商人无收购价或发生异常时回退为默认（跳蚤-based）单格价值
+        /// </summary>
+        private static double GetGroundPricePerSlotForColor(Item item, int slots, double fallbackPerSlot)
+        {
+            if (!Settings.UseTraderPriceForColor.Value || item == null)
+                return fallbackPerSlot;
+
+            try
+            {
+                var traderPrice = TraderPriceService.Instance.GetBestTraderPrice(item)?.PriceInRoubles;
+                if (!traderPrice.HasValue || traderPrice.Value <= 0)
+                    return fallbackPerSlot;
+
+                return slots > 0 ? traderPrice.Value / slots : traderPrice.Value;
+            }
+            catch
+            {
+                return fallbackPerSlot;
+            }
         }
     }
 }

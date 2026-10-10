@@ -300,17 +300,41 @@ namespace QuickPrice
         /// <summary>
         /// 异步初始化商人回收价格数据
         /// 在游戏启动时后台加载，不阻塞主线程
+        /// 服务端启动时可能尚未完成回收价表构建（会返回空表），因此循环重试直至就绪
         /// </summary>
         private async Task InitializeTraderBuybackPricesAsync()
         {
             try
             {
-                var success = await PriceDataService.Instance.UpdateTraderBuybackPricesAsync();
+                const int maxAttempts = 12;
+                const int retryDelaySeconds = 5;
 
-                if (!success)
+                for (int attempt = 1; attempt <= maxAttempts; attempt++)
                 {
-                    ClientLog.Warning("⚠️ 商人回收价格加载失败，将在使用时重试");
+                    var success = await PriceDataService.Instance.UpdateTraderBuybackPricesAsync();
+
+                    if (PriceDataService.Instance.IsTraderBuybackCacheReady())
+                    {
+                        if (attempt > 1)
+                        {
+                            ClientLog.Debug($"✅ 商人回收价格在第 {attempt}/{maxAttempts} 次尝试后加载成功");
+                        }
+                        return;
+                    }
+
+                    if (!success)
+                    {
+                        ClientLog.Warning($"⚠️ 商人回收价格加载失败（第 {attempt}/{maxAttempts} 次），稍后重试");
+                    }
+                    else
+                    {
+                        ClientLog.Debug($"⏳ 商人回收价格尚未就绪（第 {attempt}/{maxAttempts} 次），等待服务端构建缓存...");
+                    }
+
+                    await Task.Delay(TimeSpan.FromSeconds(retryDelaySeconds));
                 }
+
+                ClientLog.Warning("⚠️ 商人回收价格在多次尝试后仍未就绪，将在打开物品栏时继续重试");
             }
             catch (System.Exception ex)
             {
@@ -507,6 +531,10 @@ namespace QuickPrice
                 // 强制刷新价格数据
                 var success = await PriceDataService.Instance.UpdatePricesAsync(force: true);
 
+                // 同时强制刷新商人回收价表
+                // （首次启动时若服务端尚未构建完成，表中会缺失模组配件的回收价，手动刷新可修复）
+                var buybackRefreshed = await PriceDataService.Instance.UpdateTraderBuybackPricesAsync(force: true);
+
                 var duration = (DateTime.Now - startTime).TotalSeconds;
 
                 if (success)
@@ -515,6 +543,7 @@ namespace QuickPrice
                     Log.LogInfo("===========================================");
                     Log.LogInfo($"  ✅ 价格刷新成功！");
                     Log.LogInfo($"  📊 物品数量: {count:N0} 个");
+                    Log.LogInfo($"  📊 商人回收价表: {(buybackRefreshed ? "已同步" : "同步失败，可再次按 F10 重试")}");
                     Log.LogInfo($"  ⏱️  耗时: {duration:F1} 秒");
                     Log.LogInfo($"  📅 更新时间: {DateTime.Now:HH:mm:ss}");
                     Log.LogInfo("===========================================");
