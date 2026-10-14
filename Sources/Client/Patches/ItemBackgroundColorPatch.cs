@@ -243,19 +243,19 @@ namespace QuickPrice.Patches
                 if (Settings.EnableArmorClassColoring.Value && ArmorHelper.IsArmor(__instance))
                 {
                     var armorClass = ArmorHelper.GetArmorClass(__instance);
-                    if (armorClass.HasValue && armorClass.Value > 0)
+                    if (armorClass.HasValue)
                     {
                         __result = GetBackgroundColorByArmorClass(armorClass.Value);
                         return false;
                     }
-                    // 如果护甲等级为0或无法获取，继续执行后续逻辑
+                    // 没有护甲组件时继续执行后续逻辑
                 }
 
                 // 2.5 防弹插板 - 按防弹等级着色（如果启用）
                 if (Settings.EnableArmorClassColoring.Value && IsArmorPlate(__instance))
                 {
                     var plateClass = ArmorHelper.GetArmorClass(__instance);
-                    if (plateClass.HasValue && plateClass.Value > 0)
+                    if (plateClass.HasValue)
                     {
                         __result = GetBackgroundColorByArmorClass(plateClass.Value);
                         return false;

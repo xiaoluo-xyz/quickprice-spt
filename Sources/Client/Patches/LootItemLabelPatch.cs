@@ -346,12 +346,15 @@ namespace QuickPrice.Patches
                 }
 
                 // ===== 检查颜色缓存 =====
+                // Armor color depends on this instance's durability and installed plates.
+                bool cacheable = !ArmorHelper.IsArmor(item);
                 string cacheKey = $"{lootItem.TemplateId}|{originalText}|{Settings.ShowGroundItemPrice.Value}|{Settings.RagfairBannedPriceSource.Value}|{Settings.ShowFleaPrices.Value}|{Settings.UseTraderPriceForColor.Value}";
-                lock (_colorCacheLock)
+                if (cacheable)
                 {
-                    if (_colorCache.TryGetValue(cacheKey, out string cachedColoredText))
+                    lock (_colorCacheLock)
                     {
-                        return cachedColoredText;
+                        if (_colorCache.TryGetValue(cacheKey, out string cachedColoredText))
+                            return cachedColoredText;
                     }
                 }
 
@@ -360,9 +363,10 @@ namespace QuickPrice.Patches
                 if (!displayPrice.HasValue)
                 {
                     // 无价格数据，缓存原始文本
-                    lock (_colorCacheLock)
+                    if (cacheable)
                     {
-                        _colorCache[cacheKey] = originalText;
+                        lock (_colorCacheLock)
+                            _colorCache[cacheKey] = originalText;
                     }
                     return originalText;
                 }
@@ -394,7 +398,7 @@ namespace QuickPrice.Patches
                 else if (Settings.EnableArmorClassColoring.Value && ArmorHelper.IsArmor(item))
                 {
                     var armorClass = ArmorHelper.GetArmorClass(item);
-                    if (armorClass.HasValue && armorClass.Value > 0)
+                    if (armorClass.HasValue)
                     {
                         coloredText = ArmorColorCoding.ApplyArmorClassColor(originalText, armorClass.Value);
 
@@ -440,15 +444,18 @@ namespace QuickPrice.Patches
                 string finalText = coloredText + priceInfo;
 
                 // ===== 缓存结果 =====
-                lock (_colorCacheLock)
+                if (cacheable)
                 {
-                    _colorCache[cacheKey] = finalText;
-
-                    // ===== 定期清理缓存（避免内存泄漏）=====
-                    if (_colorCache.Count > 500)
+                    lock (_colorCacheLock)
                     {
-                        ClientLog.Debug($"⚠️ 颜色缓存过大 ({_colorCache.Count} 项)，清理一半");
-                        ClearOldestCacheEntries(250);
+                        _colorCache[cacheKey] = finalText;
+
+                        // ===== 定期清理缓存（避免内存泄漏）=====
+                        if (_colorCache.Count > 500)
+                        {
+                            ClientLog.Debug($"⚠️ 颜色缓存过大 ({_colorCache.Count} 项)，清理一半");
+                            ClearOldestCacheEntries(250);
+                        }
                     }
                 }
 

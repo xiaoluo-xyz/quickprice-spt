@@ -111,7 +111,7 @@
     <WriteLinesToFile File="@(VersionCs)" Lines="namespace QuickPrice{public static class BuildInfo {public const string Version = &quot;$(Version)&quot;%3B}}"/>
   </Target>
 
-  <Target Name="PostBuild" AfterTargets="PostBuildEvent">
+  <Target Name="PostBuild" AfterTargets="PostBuildEvent" Condition="'$(SkipDeployment)' != 'true'">
     <ItemGroup>
       <OutputDLL Include="$(ProjectDir)$(OutDir)$(TargetName).dll" />
       <SearchSoundFiles Include="$(ProjectDir)..\..\Assets\sounds\search\*.*" />

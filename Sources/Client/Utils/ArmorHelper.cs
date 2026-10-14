@@ -1,172 +1,122 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
-using System.Reflection;
+using Comfort.Common;
 using EFT.InventoryLogic;
 
 namespace QuickPrice.Utils
 {
-    /// <summary>
-    /// 护甲辅助工具 - 获取护甲的实际防弹等级
-    /// 支持检测内部的防弹插板和内置防弹内衬
-    /// </summary>
     public static class ArmorHelper
     {
-        /// <summary>
-        /// 获取护甲的实际防弹等级
-        /// </summary>
-        /// <param name="item">护甲物品</param>
-        /// <returns>防弹等级，如果无法获取则返回 null</returns>
-        public static int? GetArmorClass(Item item)
+        public static int? GetArmorClass(Item item) => GetProtection(item)?.CurrentClass;
+        public static int? GetOriginalArmorClass(Item item) => GetProtection(item)?.OriginalClass;
+
+        public static bool IsArmor(Item item) => item != null &&
+            (item.GetItemComponent<ArmorComponent>() != null ||
+             item.GetItemComponent<ArmorHolderComponent>() != null);
+
+        private static ArmorProtection? GetProtection(Item item)
         {
-            if (item == null)
+            if (!IsArmor(item) || !Singleton<BackendConfigSettingsClass>.Instantiated)
                 return null;
 
-            try
-            {
-                // 1. 先尝试获取护甲本身的防弹等级
-                var armorClass = GetArmorClassFromTemplate(item);
+            var armorConfig = Singleton<BackendConfigSettingsClass>.Instance.Armor;
+            var thresholds = armorConfig.ArmorClass.Select(level => (double)level.Resistance).ToArray();
+            var parts = new List<ArmorProtectionPart>();
+            ArmorRegion supportedRegions = ArmorRegion.None;
 
-                // 2. 如果护甲本身等级为 0，检查内部的防弹插板
-                if (!armorClass.HasValue || armorClass.Value == 0)
+            // A loose plate retains its own rating regardless of the slot it last occupied.
+            if (item is ArmorPlateItemClass plate)
+            {
+                parts.Add(GetPart(plate.Armor, ArmorRegion.None));
+            }
+            else
+            {
+                var holder = item.GetItemComponent<ArmorHolderComponent>();
+                if (holder != null)
                 {
-                    var plateArmorClass = GetArmorClassFromPlates(item);
-                    if (plateArmorClass.HasValue && plateArmorClass.Value > 0)
-                    {
-                        return plateArmorClass.Value;
-                    }
+                    foreach (var slot in holder.ArmorSlots)
+                        supportedRegions |= GetRegions(slot.ArmorPlateColliderMask, slot.ArmorColliders);
                 }
 
-                return armorClass;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// 从 Template 获取 ArmorClass
-        /// </summary>
-        private static int? GetArmorClassFromTemplate(Item item)
-        {
-            try
-            {
-                var templateProp = item.GetType().GetProperty("Template");
-                if (templateProp != null)
+                foreach (var armor in GClass3380.GetItemComponentsInChildren<ArmorComponent>(item))
                 {
-                    var template = templateProp.GetValue(item);
-                    if (template != null)
-                    {
-                        var templateType = template.GetType();
+                    if (armor is CompositeArmorComponent composite &&
+                        composite.Togglable != null && !composite.Togglable.On)
+                        continue;
 
-                        // 尝试直接获取 ArmorClass 属性
-                        var armorClassProp = templateType.GetProperty("ArmorClass");
-                        if (armorClassProp != null)
-                        {
-                            var ac = armorClassProp.GetValue(template);
-                            if (ac is int armorClass)
-                                return armorClass;
-                        }
-
-                        // 如果直接获取失败，尝试通过接口获取（GInterface383）
-                        var interfaces = templateType.GetInterfaces();
-                        foreach (var iface in interfaces)
-                        {
-                            armorClassProp = iface.GetProperty("ArmorClass");
-                            if (armorClassProp != null)
-                            {
-                                var ac = armorClassProp.GetValue(template);
-                                if (ac is int armorClass)
-                                    return armorClass;
-                            }
-                        }
-                    }
+                    var regions = GetRegions(armor.ArmorPlateCollidersMask, armor.ArmorColliders);
+                    supportedRegions |= regions;
+                    parts.Add(GetPart(armor, regions));
                 }
             }
-            catch { }
 
-            return null;
+            return ArmorProtectionCalculation.Calculate(parts, supportedRegions, thresholds);
         }
 
-        /// <summary>
-        /// 从防弹插板获取最高防弹等级
-        /// 支持检测 ArmorPlateItemClass（可拆卸插板）和 BuiltInInsertsItemClass（内置防弹内衬）
-        /// </summary>
-        private static int? GetArmorClassFromPlates(Item item)
+        private static ArmorProtectionPart GetPart(ArmorComponent armor, ArmorRegion regions)
         {
-            try
+            double original = armor.ArmorClass > 0
+                ? Singleton<BackendConfigSettingsClass>.Instance.Armor.GetArmorClass(armor.ArmorClass).Resistance
+                : 0;
+            double current = 0;
+            if (original > 0 && armor.Repairable.Durability > 0 && armor.Repairable.TemplateDurability > 0)
             {
-                var itemType = item.GetType();
+                current = GClass659.RealResistance(armor.Repairable.Durability,
+                    armor.Repairable.TemplateDurability, armor.ArmorClass, 0).RealResistance;
+                current = Math.Min(current, original);
+            }
 
-                // 获取 AllSlots 属性
-                var allSlotsProp = itemType.GetProperty("AllSlots");
-                if (allSlotsProp == null)
-                    return null;
+            return new ArmorProtectionPart(regions, current, original);
+        }
 
-                var allSlots = allSlotsProp.GetValue(item) as System.Collections.IEnumerable;
-                if (allSlots == null)
-                    return null;
+        internal static ArmorRegion GetRegions(EArmorPlateCollider plates, IEnumerable<EBodyPartColliderType> body)
+        {
+            ArmorRegion regions = ArmorRegion.None;
+            const EArmorPlateCollider front = EArmorPlateCollider.Plate_Granit_SAPI_chest |
+                EArmorPlateCollider.Plate_Korund_chest;
+            const EArmorPlateCollider back = EArmorPlateCollider.Plate_Granit_SAPI_back |
+                EArmorPlateCollider.Plate_6B13_back;
+            const EArmorPlateCollider left = EArmorPlateCollider.Plate_Granit_SSAPI_side_left_high |
+                EArmorPlateCollider.Plate_Granit_SSAPI_side_left_low |
+                EArmorPlateCollider.Plate_Korund_side_left_high |
+                EArmorPlateCollider.Plate_Korund_side_left_low;
+            const EArmorPlateCollider right = EArmorPlateCollider.Plate_Granit_SSAPI_side_right_high |
+                EArmorPlateCollider.Plate_Granit_SSAPI_side_right_low |
+                EArmorPlateCollider.Plate_Korund_side_right_high |
+                EArmorPlateCollider.Plate_Korund_side_right_low;
 
-                int maxArmorClass = 0;
+            if ((plates & front) != 0) regions |= ArmorRegion.Front;
+            if ((plates & back) != 0) regions |= ArmorRegion.Back;
+            if ((plates & left) != 0) regions |= ArmorRegion.Left;
+            if ((plates & right) != 0) regions |= ArmorRegion.Right;
 
-                foreach (var slot in allSlots)
+            foreach (var collider in body)
+            {
+                switch (collider)
                 {
-                    if (slot == null)
-                        continue;
-
-                    // 获取插槽中的物品
-                    var containedItemProp = slot.GetType().GetProperty("ContainedItem");
-                    if (containedItemProp == null)
-                        continue;
-
-                    var containedItem = containedItemProp.GetValue(slot);
-                    if (containedItem == null)
-                        continue;
-
-                    // 检查是否是防弹插板（ArmorPlateItemClass）或内置防弹内衬（BuiltInInsertsItemClass）
-                    if (containedItem is ArmorPlateItemClass ||
-                        containedItem.GetType().Name == "BuiltInInsertsItemClass")
-                    {
-                        var plateArmorClass = GetArmorClassFromTemplate(containedItem as Item);
-                        if (plateArmorClass.HasValue && plateArmorClass.Value > maxArmorClass)
-                        {
-                            maxArmorClass = plateArmorClass.Value;
-                        }
-                    }
+                    case EBodyPartColliderType.RibcageUp:
+                    case EBodyPartColliderType.RibcageLow:
+                    case EBodyPartColliderType.Pelvis:
+                        regions |= ArmorRegion.Front;
+                        break;
+                    case EBodyPartColliderType.SpineTop:
+                    case EBodyPartColliderType.SpineDown:
+                    case EBodyPartColliderType.PelvisBack:
+                        regions |= ArmorRegion.Back;
+                        break;
+                    case EBodyPartColliderType.LeftSideChestUp:
+                    case EBodyPartColliderType.LeftSideChestDown:
+                        regions |= ArmorRegion.Left;
+                        break;
+                    case EBodyPartColliderType.RightSideChestUp:
+                    case EBodyPartColliderType.RightSideChestDown:
+                        regions |= ArmorRegion.Right;
+                        break;
                 }
-
-                return maxArmorClass > 0 ? maxArmorClass : (int?)null;
             }
-            catch
-            {
-                return null;
-            }
-        }
 
-        /// <summary>
-        /// 检查物品是否是护甲类型
-        /// </summary>
-        public static bool IsArmor(Item item)
-        {
-            if (item == null)
-                return false;
-
-            var typeName = item.GetType().Name;
-
-            // 检查是否是护甲相关类型
-            // 包括：护甲本体、战术背心、头盔（HeadwearItemClass）及各种变体
-            return typeName == "ArmorItemClass" ||
-                   typeName == "VestItemClass" ||
-                   typeName == "ArmorVestItemClass" ||
-                   typeName == "HeadwearItemClass" ||
-                   typeName.Contains("Helmet") ||
-                   typeName.Contains("helmet") ||
-                   typeName.Contains("Headwear") ||
-                   typeName.Contains("headwear") ||
-                   typeName.Contains("Armor") ||
-                   typeName.Contains("armor") ||
-                   typeName.Contains("Vest") ||
-                   typeName.Contains("vest");
+            return regions;
         }
     }
 }

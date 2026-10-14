@@ -711,7 +711,7 @@ namespace QuickPrice.Patches
                     if (Settings.EnableArmorClassColoring.Value)
                     {
                         var armorClass = ArmorHelper.GetArmorClass(item);
-                        if (armorClass.HasValue && armorClass.Value > 0)
+                        if (armorClass.HasValue)
                         {
                             coloredName = ArmorColorCoding.ApplyArmorClassColor(itemName, armorClass.Value);
                         }
@@ -736,7 +736,7 @@ namespace QuickPrice.Patches
                     if (Settings.EnableArmorClassColoring.Value)
                     {
                         var plateClass = ArmorHelper.GetArmorClass(item);
-                        if (plateClass.HasValue && plateClass.Value > 0)
+                        if (plateClass.HasValue)
                         {
                             coloredName = ArmorColorCoding.ApplyArmorClassColor(itemName, plateClass.Value);
                         }
@@ -1840,7 +1840,7 @@ namespace QuickPrice.Patches
             if (Settings.ShowArmorClass.Value)
             {
                 var armorClass = ArmorHelper.GetArmorClass(armor);
-                if (armorClass.HasValue && armorClass.Value > 0)
+                if (armorClass.HasValue)
                 {
                     string armorClassText = $"防弹等级: {armorClass.Value}级";
 
@@ -1929,7 +1929,7 @@ namespace QuickPrice.Patches
             if (Settings.ShowArmorClass.Value)
             {
                 var plateClass = ArmorHelper.GetArmorClass(plate);
-                if (plateClass.HasValue && plateClass.Value > 0)
+                if (plateClass.HasValue)
                 {
                     string plateClassText = $"防弹等级: {plateClass.Value}级";
 
