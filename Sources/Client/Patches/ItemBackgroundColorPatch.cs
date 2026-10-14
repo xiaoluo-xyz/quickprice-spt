@@ -308,7 +308,7 @@ namespace QuickPrice.Patches
                     var ammoBoxPrice = GetPriceForColoring(__instance);
                     if (ammoBoxPrice.HasValue)
                     {
-                        int slots = __instance.Width * __instance.Height;
+                        int slots = ItemFootprint.GetSlots(__instance);
                         double pricePerSlot = slots > 0 ? ammoBoxPrice.Value / slots : ammoBoxPrice.Value;
                         __result = GetBackgroundColorByPricePerSlot(pricePerSlot);
                         return false;
@@ -326,7 +326,7 @@ namespace QuickPrice.Patches
                         return true; // 无价格数据，使用原始颜色
 
                     // 计算单格价值
-                    int slots = __instance.Width * __instance.Height;
+                    int slots = ItemFootprint.GetSlots(__instance);
                     double pricePerSlot = slots > 0 ? price.Value / slots : price.Value;
 
                     __result = GetBackgroundColorByPricePerSlot(pricePerSlot);
@@ -339,7 +339,7 @@ namespace QuickPrice.Patches
                     return true; // 无价格数据，使用原始颜色
 
                 // 计算单格价值
-                int itemSlots = __instance.Width * __instance.Height;
+                int itemSlots = ItemFootprint.GetSlots(__instance);
                 double itemPricePerSlot = itemSlots > 0 ? itemPrice.Value / itemSlots : itemPrice.Value;
 
                 __result = GetBackgroundColorByPricePerSlot(itemPricePerSlot);

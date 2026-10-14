@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Changed
+- Armor colors and displayed protection classes use the game's durability-adjusted resistance.
+- Torso protection uses fixed front/back/left/right weights of 50/30/10/10, derived from runtime coverage data; missing supported plates retain their weight and soft armor is not added to plate resistance.
+- Native Roman numeral badges show the original protection class, including weighted whole-armor ratings, with the original class color.
+
+### Fixed
+- Price per slot and value-based colors use the actual item footprint, including attachments and folding. A 206.5k weapon occupying eight cells now displays approximately 25.8k per cell instead of 103.2k.
+- Armor and changing item footprints refresh their inventory colors; ground labels no longer share stale armor colors or differently sized item results by template.
+
+---
+
 ## [2.0.0] - 2026-01-13
 
 ### Added

@@ -99,7 +99,7 @@ namespace QuickPrice.Patches
                 }
 
                 // 获取物品占用格数
-                int slots = item.Width * item.Height;
+                int slots = ItemFootprint.GetSlots(item);
 
                 // 给物品名称着色（在添加价格信息之前）
                 if (Settings.ColorItemName.Value && Settings.EnableColorCoding.Value)
@@ -601,7 +601,7 @@ namespace QuickPrice.Patches
                         double totalPrice = weaponDisplayPrice.Value + modsPrice;
 
                         // 计算单格价值
-                        int weaponSlots = weapon.Width * weapon.Height;
+                        int weaponSlots = ItemFootprint.GetSlots(weapon);
                         double pricePerSlot = weaponSlots > 0 ? totalPrice / weaponSlots : totalPrice;
 
                         coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(weapon, weaponSlots, pricePerSlot));
@@ -639,7 +639,7 @@ namespace QuickPrice.Patches
                         var boxDisplayPrice = GetPreferredPriceForDisplay(ammoBox, boxFleaPrice, boxTraderPrice);
                         if (boxDisplayPrice.HasValue)
                         {
-                            int ammoBoxSlots = ammoBox.Width * ammoBox.Height;
+                            int ammoBoxSlots = ItemFootprint.GetSlots(ammoBox);
                             double pricePerSlot = ammoBoxSlots > 0 ? boxDisplayPrice.Value / ammoBoxSlots : boxDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(ammoBox, ammoBoxSlots, pricePerSlot));
                         }
@@ -676,7 +676,7 @@ namespace QuickPrice.Patches
                         var magDisplayPrice = GetPreferredPriceForDisplay(magazine, magFleaPrice, magTraderPrice);
                         if (magDisplayPrice.HasValue)
                         {
-                            int magSlots = magazine.Width * magazine.Height;
+                            int magSlots = ItemFootprint.GetSlots(magazine);
                             double pricePerSlot = magSlots > 0 ? magDisplayPrice.Value / magSlots : magDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(magazine, magSlots, pricePerSlot));
                         }
@@ -699,7 +699,7 @@ namespace QuickPrice.Patches
                         {
                             int stackCount = GetEffectiveStackCount(ammo.StackObjectsCount);
                             double totalPrice = ammoDisplayPrice.Value * stackCount;
-                            int ammoSlots = ammo.Width * ammo.Height;
+                            int ammoSlots = ItemFootprint.GetSlots(ammo);
                             double pricePerSlot = ammoSlots > 0 ? totalPrice / ammoSlots : totalPrice;
                             coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(ammo, ammoSlots, pricePerSlot, stackCount));
                         }
@@ -724,7 +724,7 @@ namespace QuickPrice.Patches
                         var armorDisplayPrice = GetPreferredPriceForDisplay(item, armorFleaPrice, armorTraderPrice);
                         if (armorDisplayPrice.HasValue)
                         {
-                            int armorSlots = item.Width * item.Height;
+                            int armorSlots = ItemFootprint.GetSlots(item);
                             double pricePerSlot = armorSlots > 0 ? armorDisplayPrice.Value / armorSlots : armorDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(item, armorSlots, pricePerSlot));
                         }
@@ -749,7 +749,7 @@ namespace QuickPrice.Patches
                         var plateDisplayPrice = GetPreferredPriceForDisplay(item, plateFleaPrice, plateTraderPrice);
                         if (plateDisplayPrice.HasValue)
                         {
-                            int plateSlots = item.Width * item.Height;
+                            int plateSlots = ItemFootprint.GetSlots(item);
                             double pricePerSlot = plateSlots > 0 ? plateDisplayPrice.Value / plateSlots : plateDisplayPrice.Value;
                             coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(item, plateSlots, pricePerSlot));
                         }
@@ -765,7 +765,7 @@ namespace QuickPrice.Patches
                     {
                         int stackCount = GetEffectiveStackCount(item.StackObjectsCount);
                         double totalPrice = displayPrice.Value * stackCount;
-                        int itemSlots = item.Width * item.Height;
+                        int itemSlots = ItemFootprint.GetSlots(item);
                         double pricePerSlot = itemSlots > 0 ? totalPrice / itemSlots : totalPrice;
                         coloredName = PriceColorCoding.ApplyColor(itemName, GetPricePerSlotForColor(item, itemSlots, pricePerSlot, stackCount));
                     }
@@ -998,7 +998,7 @@ namespace QuickPrice.Patches
                         double colorPrice = traderPrice.PriceInRoubles;
                         if (Settings.UseTraderPriceForColor.Value)
                         {
-                            int itemSlots = item.Width * item.Height;
+                            int itemSlots = ItemFootprint.GetSlots(item);
                             colorPrice = itemSlots > 0 ? traderPrice.PriceInRoubles / itemSlots : traderPrice.PriceInRoubles;
                         }
                         traderText = PriceColorCoding.ApplyColor(traderText, colorPrice);

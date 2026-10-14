@@ -2,6 +2,7 @@ using EFT.InventoryLogic;
 using QuickPrice.Config;
 using QuickPrice.Logging;
 using QuickPrice.Models;
+using QuickPrice.Utils;
 using System.Linq;
 
 namespace QuickPrice.Services
@@ -36,7 +37,7 @@ namespace QuickPrice.Services
                 return null;
 
             // 计算单格价格
-            int slots = GetItemSlots(item);
+            int slots = ItemFootprint.GetSlots(item);
             double pricePerSlot = slots > 0 ? fleaPrice.Value / slots : fleaPrice.Value;
 
             return new PriceInfo
@@ -211,7 +212,7 @@ namespace QuickPrice.Services
                 var modPrice = PriceDataService.Instance.GetPrice(mod.TemplateId);
                 if (modPrice.HasValue)
                 {
-                    int slots = GetItemSlots(mod);
+                    int slots = ItemFootprint.GetSlots(mod);
                     double pricePerSlot = slots > 0 ? modPrice.Value / slots : modPrice.Value;
 
                     // 添加到列表
@@ -242,19 +243,5 @@ namespace QuickPrice.Services
             }
         }
 
-        /// <summary>
-        /// 获取物品占用的格子数
-        /// </summary>
-        private static int GetItemSlots(Item item)
-        {
-            try
-            {
-                return item.Width * item.Height;
-            }
-            catch
-            {
-                return 1;
-            }
-        }
     }
 }

@@ -348,7 +348,7 @@ namespace QuickPrice.Patches
                 // ===== 检查颜色缓存 =====
                 // Armor color depends on this instance's durability and installed plates.
                 bool cacheable = !ArmorHelper.IsArmor(item);
-                string cacheKey = $"{lootItem.TemplateId}|{originalText}|{Settings.ShowGroundItemPrice.Value}|{Settings.RagfairBannedPriceSource.Value}|{Settings.ShowFleaPrices.Value}|{Settings.UseTraderPriceForColor.Value}";
+                string cacheKey = $"{lootItem.TemplateId}|{originalText}|{Settings.ShowGroundItemPrice.Value}|{Settings.RagfairBannedPriceSource.Value}|{Settings.ShowFleaPrices.Value}|{Settings.UseTraderPriceForColor.Value}|{ItemFootprint.GetSlots(item)}";
                 if (cacheable)
                 {
                     lock (_colorCacheLock)
@@ -411,7 +411,7 @@ namespace QuickPrice.Patches
                     else
                     {
                         // 无法获取护甲等级，按价格着色
-                        int slots = item.Width * item.Height;
+                        int slots = ItemFootprint.GetSlots(item);
                         double pricePerSlot = slots > 0 ? priceValue / slots : priceValue;
                         coloredText = PriceColorCoding.ApplyColor(originalText, GetGroundPricePerSlotForColor(item, slots, pricePerSlot));
 
@@ -424,7 +424,7 @@ namespace QuickPrice.Patches
                 // 4. 普通物品：按单格价值着色
                 else
                 {
-                    int slots = item.Width * item.Height;
+                    int slots = ItemFootprint.GetSlots(item);
                     double pricePerSlot = slots > 0 ? priceValue / slots : priceValue;
                     coloredText = PriceColorCoding.ApplyColor(originalText, GetGroundPricePerSlotForColor(item, slots, pricePerSlot));
 
@@ -502,7 +502,7 @@ namespace QuickPrice.Patches
 
                 // 无法获取子弹信息，按价格着色
                 var boxItem = ammoBox as Item;
-                int slots = boxItem.Width * boxItem.Height;
+                int slots = ItemFootprint.GetSlots(boxItem);
                 double pricePerSlot = slots > 0 ? totalPrice / slots : totalPrice;
 
                 if (Settings.ShowGroundItemPrice.Value)
@@ -518,7 +518,7 @@ namespace QuickPrice.Patches
 
                 // 降级处理：按价格着色
                 var boxItem = ammoBox as Item;
-                int slots = boxItem.Width * boxItem.Height;
+                int slots = ItemFootprint.GetSlots(boxItem);
                 double pricePerSlot = slots > 0 ? totalPrice / slots : totalPrice;
 
                 if (Settings.ShowGroundItemPrice.Value)

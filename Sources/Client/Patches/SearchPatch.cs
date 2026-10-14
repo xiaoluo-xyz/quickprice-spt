@@ -132,7 +132,7 @@ namespace QuickPrice.Patches
                 if (!price.HasValue) return 1;
 
                 // 计算单格价值
-                int slots = item.Width * item.Height;
+                int slots = ItemFootprint.GetSlots(item);
                 double pricePerSlot = slots > 0 ? price.Value / slots : price.Value;
 
                 // 使用与背景色相同的等级划分逻辑
@@ -429,7 +429,7 @@ namespace QuickPrice.Patches
                 if (!price.HasValue) return 1;
 
                 // 计算单格价值
-                int slots = item.Width * item.Height;
+                int slots = ItemFootprint.GetSlots(item);
                 double pricePerSlot = slots > 0 ? price.Value / slots : price.Value;
 
                 // 使用与背景色相同的等级划分逻辑

@@ -51,13 +51,13 @@ namespace QuickPrice.Patches
     }
 
     [HarmonyPatch(typeof(GridItemView), nameof(GridItemView.UpdateInfo))]
-    internal static class ArmorProtectionRefreshPatch
+    internal static class ItemInfoRefreshPatch
     {
         [HarmonyPrefix]
         private static void Prefix(GridItemView __instance, ref Color ___OriginalBackgroundColor,
             ItemViewAnimation ___Animator)
         {
-            if (!ArmorHelper.IsArmor(__instance.Item))
+            if (!ArmorHelper.IsArmor(__instance.Item) && !(__instance.Item is CompoundItem))
                 return;
 
             // GridItemView caches this at creation; update it before native status colors run.
