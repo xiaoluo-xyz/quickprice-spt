@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net471</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>QuickPrice.ArmorVerification</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Sources/Client/Utils/ArmorProtectionCalculation.cs" Link="ArmorProtectionCalculation.cs" />
+    <Compile Include="../../Sources/Client/Utils/ArmorHelper.cs" Link="ArmorHelper.cs" />
+    <Reference Include="Assembly-CSharp"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Comfort"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/Comfort.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ItemComponent.Types"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/ItemComponent.Types.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ItemTemplate.Types"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/ItemTemplate.Types.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.UI"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Sirenix.Serialization"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/Sirenix.Serialization.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

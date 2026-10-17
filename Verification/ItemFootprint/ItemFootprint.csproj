@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net471</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>QuickPrice.ItemFootprintVerification</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../Sources/Client/Utils/ItemFootprint.cs" Link="ItemFootprint.cs" />
+    <Reference Include="Assembly-CSharp"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Comfort"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/Comfort.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ItemComponent.Types"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/ItemComponent.Types.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ItemTemplate.Types"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/ItemTemplate.Types.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(TarkovDir)EscapeFromTarkov_Data/Managed/UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>
